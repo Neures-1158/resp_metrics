@@ -42,7 +42,7 @@ Basic workflow:
 from resp_metrics import compute_from_labchart
 
 # Example path to LabChart .txt export
-path = "examples/data/33-01-0009-D2-AVI.txt"
+path = "examples/data/labchart_file.example.txt"
 
 # Spontaneous breathing
 result = compute_from_labchart(
