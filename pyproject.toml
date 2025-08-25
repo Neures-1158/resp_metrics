@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resp_metrics"
+version = "0.1.0"
+description = "Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, ...)"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Damien Bachasson", email = "damien.bachasson@gmail.com" }]
+requires-python = ">=3.8"
+dependencies = [
+  "numpy>=1.22",
+  "pandas>=1.5",
+  "labchart_parser @ git+https://github.com/Neures-1158/lachart_txt_parser.git"
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+keywords = ["respiration", "ventilation", "physiology", "metrics"]
+
+[project.urls]
+Homepage = "https://github.com/Neures-1158/resp_metrics"
+Repository = "https://github.com/Neures-1158/resp_metrics"
+Issues = "https://github.com/Neures-1158/resp_metrics/issues"
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.5"]
+dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
