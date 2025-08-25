@@ -65,3 +65,4 @@ cover/
 
 # Local data 
 data/
+!examples/data/
