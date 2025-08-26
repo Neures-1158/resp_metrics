@@ -7,8 +7,8 @@ Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed
 - Parse LabChart `.txt` exports using [labchart_parser](https://github.com/Neures-1158/labchart_txt_parser).
 - Extract respiratory cycles from INSPI/EXPI comments obtained using a macro in labchart. Absence of automatic detection is deliberate as it forces thorough inspection of signals.
 - Compute ventilatory variables for:
-  - **Spontaneous breathing** (Flow in L/min, inspiration negative).
-  - **Mechanical ventilation** (Flow in L/min, inspiration positive, Pressure available).
+  - **Spontaneous breathing** (Flow inspiration negative).
+  - **Mechanical ventilation** (Flow inspiration positive).
 - Outputs per-cycle DataFrames with standard metrics (BF, VT, VE, Ti, Te, I:E, PIF, PEF, PTP, WOB).
 - For mechanical ventilation, also returns PEEP, Ppeak, ΔP, MAP, etc. (Pplat, Cstat, R left NaN for now in absence of inspiratory hold AND detection). 
 
@@ -35,35 +35,6 @@ pip install -e .
 ## Usage
 
 See [`examples/example_usage.py`](examples/example_usage.py) for full code.
-
-Basic workflow:
-
-```python
-from resp_metrics import compute_from_labchart
-
-# Example path to LabChart .txt export
-path = "examples/data/labchart_file.example.txt"
-
-# Spontaneous breathing
-result = compute_from_labchart(
-    path,
-    block=1,
-    flow_col="Flow",
-    mechanically_ventilated=False
-)
-print(result["ventilatory"].head())
-
-# Mechanical ventilation (requires Pressure channel)
-result = compute_from_labchart(
-    path,
-    block=1,
-    flow_col="Flow",
-    pressure_col="Pressure",
-    mechanically_ventilated=True
-)
-print(result["ventilatory"].head())
-print(result["ventilator"].head())  # mechanical subset
-```
 
 ## License
 
