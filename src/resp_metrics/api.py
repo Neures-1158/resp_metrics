@@ -34,6 +34,7 @@ def compute_from_labchart(
     *,
     block: int = 1,
     flow_col: str,
+    flow_unit: str,
     volume_col: Optional[str] = None,
     pressure_col: Optional[str] = None,
     mechanically_ventilated: bool = False,
@@ -94,7 +95,7 @@ def compute_from_labchart(
         )
         # Extract only mechanical columns for the 'ventilator' view
         mech_cols = [c for c in [
-            'n_cycle','t_insp','t_expi','PEEP','Ppeak','Pplat','dP','Cstat','R','MAP'
+            'n_cycle','t_inspi','t_expi','PEEP','Ppeak','Pplat','dP','Cstat','R','MAP'
         ] if c in vent.columns]
         ventmech = vent[mech_cols].copy() if mech_cols else None
     else:
@@ -103,7 +104,9 @@ def compute_from_labchart(
             df_block,
             cycles,
             flow_col=flow_col,
+            pressure_col=pressure_col,
             volume_col=volume_col,
+            flow_unit=flow_unit,
         )
         ventmech = None
 

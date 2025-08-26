@@ -9,27 +9,27 @@ Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed
 - Compute ventilatory variables for:
   - **Spontaneous breathing** (Flow in L/min, inspiration negative).
   - **Mechanical ventilation** (Flow in L/min, inspiration positive, Pressure available).
-- Outputs per-cycle DataFrames with standard metrics (BF, VT, VE, Ti, Te, I:E, PIF, PEF).
+- Outputs per-cycle DataFrames with standard metrics (BF, VT, VE, Ti, Te, I:E, PIF, PEF, PTP, WOB).
 - For mechanical ventilation, also returns PEEP, Ppeak, ΔP, MAP, etc. (Pplat, Cstat, R left NaN for now in absence of inspiratory hold AND detection). 
 
 ## Installation
 
 You can install in two ways:
 
-### Option 1 – Development mode (editable install)
+### Option 1 – Direct install from GitHub
+Install directly into your environment with pip:
+
+```bash
+pip install git+https://github.com/Neures-1158/resp_metrics.git
+```
+
+### Option 2 – Development mode (editable install)
 Clone the repository locally and install in editable mode:
 
 ```bash
 git clone https://github.com/Neures-1158/resp_metrics.git
 cd resp_metrics
 pip install -e .
-```
-
-### Option 2 – Direct install from GitHub
-Install directly into your environment with pip:
-
-```bash
-pip install git+https://github.com/Neures-1158/resp_metrics.git
 ```
 
 ## Usage

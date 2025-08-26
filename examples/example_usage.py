@@ -24,10 +24,11 @@ from labchart_parser import LabChartFile
 from resp_metrics import cycles_from_comments
 
 def main():
-    path = "examples/data/labchart_file.example.txt"
+    path_mv = "examples/data/labchart_file.example.txt"
+    path_vs = "examples/data/labchart_file_vs.example.txt"
 
     # --- Load LabChart file ---
-    lc = LabChartFile.from_file(path)
+    lc = LabChartFile.from_file(path_vs)
     print("=== LabChart File Information ===")
     print("Metadata:", lc.metadata)
     print("Channels:", lc.channels)
@@ -39,7 +40,6 @@ def main():
                                   insp_label="INSPI", expi_label="EXPI")
     print("=== Detected Cycles ===")
     print(cycles.head())
-    print()
 
     # --- Compute ventilatory metrics for spontaneous breathing ---
     from resp_metrics import ventilatory_from_cycles
@@ -49,10 +49,11 @@ def main():
         cycles,
         flow_col="Flow",
         volume_col=None,
+        pressure_col= "Pressure",
+        flow_unit="L/s"
     )
     print("=== Ventilatory Metrics (Spontaneous Breathing) ===")
     print(metrics.head())
-    print()
 
     # --- High-level API usage ---
 
@@ -60,11 +61,12 @@ def main():
 
     # Spontaneous breathing example
     result_spont = compute_from_labchart(
-        path,
+        path_vs,
         block=1,
         flow_col="Flow",
+        flow_unit="L/s",
         volume_col=None,
-        pressure_col=None,               # No pressure channel for spontaneous
+        pressure_col="Pressure",               # No pressure channel for spontaneous
         mechanically_ventilated=False
     )
     print("=== High-level API Results: Spontaneous Breathing ===")
@@ -78,9 +80,10 @@ def main():
 
     # Mechanical ventilation example
     result_mech = compute_from_labchart(
-        path,
+        path_mv,
         block=1,
         flow_col="Flow",
+        flow_unit="L/min",
         volume_col=None,
         pressure_col="Pressure",
         mechanically_ventilated=True
