@@ -8,7 +8,7 @@ This module provides:
 
 It returns a DataFrame with one row per cycle and the following columns:
   - n_cycle: 1-based cycle index
-  - t_insp, t_expi: absolute times delimiting inspiration
+  - t_inspi, t_expi: absolute times delimiting inspiration
   - PEEP: positive end-expiratory pressure (cmH2O)
   - Ppeak: peak inspiratory pressure (cmH2O)
   - Pplat: plateau pressure (cmH2O), if low-flow plateau detected (depends on presence of an inspiratory hold; may be NaN)
@@ -55,17 +55,17 @@ def mechanical_from_cycles(
     needed = {"time_abs", pressure_col, flow_col}
     if df_block is None or df_block.empty or not needed.issubset(df_block.columns):
         return pd.DataFrame(columns=[
-            "n_cycle","t_insp","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
+            "n_cycle","t_inspi","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
         ])
     if cycles_df is None or cycles_df.empty:
         return pd.DataFrame(columns=[
-            "n_cycle","t_insp","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
+            "n_cycle","t_inspi","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
         ])
 
-    # handle 't_insp' or legacy 't_inspi'
-    ti_col = "t_insp" if "t_insp" in cycles_df.columns else ("t_inspi" if "t_inspi" in cycles_df.columns else None)
-    if ti_col is None:
-        raise KeyError("cycles_df must contain 't_insp' (or legacy 't_inspi')")
+    # Use t_inspi for inspiration time
+    ti_col = "t_inspi"
+    if ti_col not in cycles_df.columns:
+        raise KeyError("cycles_df must contain 't_inspi'")
     te_col = "t_expi"
     if te_col not in cycles_df.columns:
         raise KeyError("cycles_df must contain 't_expi'")
@@ -82,13 +82,13 @@ def mechanical_from_cycles(
     cyc = cyc.sort_values(ti_col).reset_index(drop=True)
     if "n_cycle" not in cyc.columns:
         cyc.insert(0, "n_cycle", range(1, len(cyc) + 1))
-    cyc["t_next_insp"] = cyc[ti_col].shift(-1)
+    cyc["t_next_inspi"] = cyc[ti_col].shift(-1)
 
     rows = []
     for _, r in cyc.iterrows():
         ncy = int(r["n_cycle"])
         ti, te = float(r[ti_col]), float(r[te_col])
-        t_next = r["t_next_insp"]
+        t_next = r["t_next_inspi"]
 
         i_insp = _nearest_idx(t, ti)
         i_expi = _nearest_idx(t, te)
@@ -188,7 +188,7 @@ def mechanical_from_cycles(
         rows.append({
             # Common identifiers
             "n_cycle": ncy,
-            "t_insp": t[i_insp],
+            "t_inspi": t[i_insp],
             "t_expi": t[i_expi],
             # Ventilatory variables
             "Ti": Ti, "Ttot": Ttot, "Te": Te, "BF": BF,
