@@ -4,8 +4,15 @@ Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed
 
 ## Features
 
-- Parse LabChart `.txt` exports using [labchart_parser](https://github.com/Neures-1158/labchart_txt_parser).
+- Parse LabChart `.txt` exports using [labchart_parser](https://github.com/Neures-1158/labchart_txt_parser).  Export from labchart as follows:
+  <img src="img/lc_signal_export.png" width="200" alt="LabChart screenshot showing signal export dialog">
+
+    - Before exporting in LabChart, make sure time is displayed as "Start from Block"
+
 - Extract respiratory cycles from INSPI/EXPI comments obtained using a macro in labchart. Absence of automatic detection is deliberate as it forces thorough inspection of signals.
+
+  <img src="img/lc_inspi-expi_comments.png" width="300" alt="Example of LabChart screenshot showing respiratory cycles detection with INSPI/EXPI comments">
+
 - Compute ventilatory variables for:
   - **Spontaneous breathing** (Flow inspiration negative).
   - **Mechanical ventilation** (Flow inspiration positive).
