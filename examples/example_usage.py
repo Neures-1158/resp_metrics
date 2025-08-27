@@ -29,6 +29,7 @@ def main():
 
     # --- Load LabChart file ---
     lc = LabChartFile.from_file(path_vs)
+    
     print("=== LabChart File Information ===")
     print("Metadata:", lc.metadata)
     print("Channels:", lc.channels)

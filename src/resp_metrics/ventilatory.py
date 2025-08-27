@@ -22,7 +22,7 @@ Assumptions:
   - Flow can be in L/min or L/s (specified by flow_unit parameter)
   - Flow is negative during inspiration (spontaneous breathing convention)
   - PIF/PEF are returned as magnitudes (L/s)
-  - cycles_df contains at least 't_inspi' and 't_expi' (from cycles_from_comments)
+  - cycles_df contains 't_inspi', 't_expi', and 't_next_inspi' (from cycles_from_comments)
 
 Notes:
   - If `volume_col` is available, VT is computed as ΔVolume on inspiration.
@@ -124,13 +124,12 @@ def ventilatory_from_cycles(
     if te_col not in cycles_df.columns:
         raise KeyError("cycles_df must contain a 't_expi' column")
 
-    base_cols = [ti_col, te_col]
+    base_cols = [ti_col, te_col, 't_next_inspi']
     use_cols = base_cols + (['n_cycle'] if 'n_cycle' in cycles_df.columns else [])
     cyc = cycles_df[use_cols].dropna(subset=[ti_col, te_col]).copy()
     cyc = cyc.sort_values(ti_col).reset_index(drop=True)
     if 'n_cycle' not in cyc.columns:
         cyc.insert(0, 'n_cycle', range(1, len(cyc) + 1))
-    cyc['t_next_inspi'] = cyc[ti_col].shift(-1)
 
     rows = []
     for i, row in cyc.iterrows():

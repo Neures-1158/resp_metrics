@@ -8,7 +8,9 @@ This module provides:
 
 It returns a DataFrame with one row per cycle and the following columns:
   - n_cycle: 1-based cycle index
-  - t_inspi, t_expi: absolute times delimiting inspiration
+  - t_inspi: absolute time of inspiration onset
+  - t_expi: absolute time of expiration onset
+  - t_next_inspi: absolute time of next inspiration onset
   - PEEP: positive end-expiratory pressure (cmH2O)
   - Ppeak: peak inspiratory pressure (cmH2O)
   - Pplat: plateau pressure (cmH2O), if low-flow plateau detected (depends on presence of an inspiratory hold; may be NaN)
@@ -69,6 +71,8 @@ def mechanical_from_cycles(
     te_col = "t_expi"
     if te_col not in cycles_df.columns:
         raise KeyError("cycles_df must contain 't_expi'")
+    if "t_next_inspi" not in cycles_df.columns:
+        raise KeyError("cycles_df must contain 't_next_inspi'")
 
     t = df_block["time_abs"].to_numpy()
     P = df_block[pressure_col].to_numpy()
@@ -77,12 +81,11 @@ def mechanical_from_cycles(
     has_vol = (volume_col is not None) and (volume_col in df_block.columns)
     V = df_block[volume_col].to_numpy() if has_vol else None
 
-    use_cols = [ti_col, te_col] + (["n_cycle"] if "n_cycle" in cycles_df.columns else [])
+    use_cols = [ti_col, te_col, "t_next_inspi"] + (["n_cycle"] if "n_cycle" in cycles_df.columns else [])
     cyc = cycles_df[use_cols].dropna(subset=[ti_col, te_col]).copy()
     cyc = cyc.sort_values(ti_col).reset_index(drop=True)
     if "n_cycle" not in cyc.columns:
         cyc.insert(0, "n_cycle", range(1, len(cyc) + 1))
-    cyc["t_next_inspi"] = cyc[ti_col].shift(-1)
 
     rows = []
     for _, r in cyc.iterrows():

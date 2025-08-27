@@ -3,9 +3,9 @@ Cycle detection utilities for respiratory metrics.
 
 This module defines helper functions for detecting respiratory cycles
 from comment annotations. A cycle is defined as an inspiration start
-followed by the next expiration start. This relies on comment labels
-exported from LabChart (e.g. ``INSPI`` for inspiration, ``EXPI`` for
-expiration) and the time stamps associated with those comments.
+followed by expiration start and the next inspiration start. This relies
+on comment labels exported from LabChart (e.g. ``INSPI`` for inspiration,
+``EXPI`` for expiration) and the time stamps associated with those comments.
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ def cycles_from_comments(
     expi_label: str = "EXPI",
 ) -> pd.DataFrame:
     """
-    Build a cycles DataFrame by pairing INSPI → next EXPI within a block.
+    Build a cycles DataFrame by identifying complete respiratory cycles 
+    (INSPI → EXPI → next INSPI) within a block.
 
     Parameters
     ----------
@@ -40,14 +41,15 @@ def cycles_from_comments(
           - ``n_cycle``: 1-based cycle index within the block
           - ``t_inspi``: absolute time of inspiration onset
           - ``t_expi``: absolute time of expiration onset
+          - ``t_next_inspi``: absolute time of next inspiration onset
     """
     if comments_df is None or comments_df.empty:
-        return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi"])
+        return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi", "t_next_inspi"])
 
-    # filter block and normalize comments
+    # filter
     c = comments_df.loc[comments_df["block"] == block].copy()
     if c.empty:
-        return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi"])
+        return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi", "t_next_inspi"])
     lab = c["Comment"].astype(str).str.strip().str.upper()
     t = c["time_abs"].to_numpy()
 
@@ -56,10 +58,15 @@ def cycles_from_comments(
     t_expi = t[lab == expi_label.upper()]
 
     rows = []
-    for ti in t_inspi:
+    for i, ti in enumerate(t_inspi[:-1]):  # Skip last INSPI as it won't have a next INSPI
         ex_after = t_expi[t_expi > ti]
         if ex_after.size:
-            rows.append({"t_inspi": float(ti), "t_expi": float(ex_after[0])})
+            next_inspi = t_inspi[i + 1]  # Get next INSPI
+            rows.append({
+                "t_inspi": float(ti),
+                "t_expi": float(ex_after[0]),
+                "t_next_inspi": float(next_inspi)
+            })
 
     out = pd.DataFrame(rows)
     if not out.empty:
