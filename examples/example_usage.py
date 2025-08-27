@@ -83,7 +83,7 @@ def main():
     # Mechanical ventilation example using mechanical_from_cycles
     from resp_metrics import mechanical_from_cycles
     lc_mv = LabChartFile.from_file(path_mv)
-    cycles_mv = cycles_from_comments(lc_mv.comments, block=1,
+    cycles_mv = cycles_from_comments(lc_mv.comments, block=2,
                                       insp_label="INSPI", expi_label="EXPI")
     print(cycles_mv)
     result_mech = mechanical_from_cycles(
