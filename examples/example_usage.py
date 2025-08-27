@@ -15,10 +15,10 @@ import sys
 from pathlib import Path
 
 # Ensure local src/ is importable without installation
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if SRC.exists():
-    sys.path.insert(0, str(SRC))
+# ROOT = Path(__file__).resolve().parents[2]
+# SRC = ROOT / "src"
+# if SRC.exists():
+#     sys.path.insert(0, str(SRC))
 
 from labchart_parser import LabChartFile
 from resp_metrics import cycles_from_comments
