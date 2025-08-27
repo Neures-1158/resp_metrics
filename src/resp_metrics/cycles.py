@@ -25,7 +25,7 @@ def cycles_from_comments(
     Parameters
     ----------
     comments_df : pandas.DataFrame
-        DataFrame of comments with at least columns ``time_abs``, ``block``,
+        DataFrame of comments with at least columns ``time_block``, ``block``,
         and ``Comment``.
     block : int
         Block index to extract cycles from.
@@ -51,7 +51,7 @@ def cycles_from_comments(
     if c.empty:
         return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi", "t_next_inspi"])
     lab = c["Comment"].astype(str).str.strip().str.upper()
-    t = c["time_abs"].to_numpy()
+    t = c["time_block"].to_numpy()
 
     # identify INSPI and EXPI times
     t_inspi = t[lab == insp_label.upper()]
