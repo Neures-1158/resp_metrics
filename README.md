@@ -1,4 +1,4 @@
-# resp_metrics
+# Resp_metrics
 
 Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed from respiratory signals exported from ADInstruments LabChart.
 
