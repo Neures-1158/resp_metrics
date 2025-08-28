@@ -43,13 +43,12 @@ pip install -e .
 
 See [`examples/example_usage.py`](examples/example_usage.py) for full code.
 
-## License
-
-[MIT License](LICENSE)
-
 ## Contributors & Maintainers
 
 This project is maintained under the [NEURES Lab GitHub organization](https://github.com/Neures-1158).  
-Main maintainer: **Damien Bachasson** (author and lead developer).
 
 Contributions from lab members, collaborators, and the wider community are very welcome. Please feel free to contribute by submitting issues or pull requests on GitHub.
+
+## License
+
+[MIT License](LICENSE)
