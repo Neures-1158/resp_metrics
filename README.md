@@ -5,6 +5,7 @@ Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed
 ## Features
 
 - Parse LabChart `.txt` exports using [labchart_parser](https://github.com/Neures-1158/labchart_txt_parser).  Export from labchart as follows:
+- 
   <img src="img/lc_signal_export.png" width="200" alt="LabChart screenshot showing signal export dialog">
 
     - Before exporting in LabChart, make sure time is displayed as "Start from Block"
