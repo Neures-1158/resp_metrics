@@ -13,7 +13,7 @@ requires-python = ">=3.8"
 dependencies = [
   "numpy>=1.22",
   "pandas>=1.5",
-  "labchart_parser @ git+https://github.com/Neures-1158/lachart_txt_parser.git"
+  "labchart_parser @ git+https://github.com/Neures-1158/labchart_txt_parser.git"
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
