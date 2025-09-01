@@ -25,6 +25,7 @@ from resp_metrics import cycles_from_comments
 
 def main():
     path_mv = "examples/data/labchart_file.example.txt"
+    # path_mv = "examples/data/labchart_file_negTime.txt"
     path_vs = "examples/data/labchart_file_vs.example.txt"
 
     # --- Load LabChart file ---
