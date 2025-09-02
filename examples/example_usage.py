@@ -24,8 +24,8 @@ from labchart_parser import LabChartFile
 from resp_metrics import cycles_from_comments
 
 def main():
-    path_mv = "examples/data/labchart_file.example.txt"
-    # path_mv = "examples/data/labchart_file_negTime.txt"
+    # path_mv = "examples/data/labchart_file.example.txt"
+    path_mv = "examples/data/labchart_file_negTime.txt"
     path_vs = "examples/data/labchart_file_vs.example.txt"
 
     # --- Load LabChart file ---
@@ -84,11 +84,11 @@ def main():
     # Mechanical ventilation example using mechanical_from_cycles
     from resp_metrics import mechanical_from_cycles
     lc_mv = LabChartFile.from_file(path_mv)
-    cycles_mv = cycles_from_comments(lc_mv.comments, block=2,
+    cycles_mv = cycles_from_comments(lc_mv.comments, block=4,
                                       insp_label="INSPI", expi_label="EXPI")
     print(cycles_mv)
     result_mech = mechanical_from_cycles(
-        lc_mv.get_block_df(1),
+        lc_mv.get_block_df(4),
         cycles_mv,
         flow_col="Flow",
         volume_col=None,
