@@ -18,7 +18,7 @@ It returns a DataFrame with one row per cycle and the following columns:
   - PTP: pressure-time product (cmH2O·s)
 
 Assumptions:
-  - df_block contains at least 'time_abs' and the specified flow/volume columns
+  - df_block contains at least 'time_block' and the specified flow/volume columns
   - Flow can be in L/min or L/s (specified by flow_unit parameter)
   - Flow is negative during inspiration (spontaneous breathing convention)
   - PIF/PEF are returned as magnitudes (L/s)
@@ -65,7 +65,7 @@ def ventilatory_from_cycles(
     ----------
     df_block : pandas.DataFrame
         A single-block DataFrame as returned by LabChartFile.get_block_df(b).
-        Must contain 'time_abs' and the requested channel columns.
+        Must contain 'time_block' and the requested channel columns.
     cycles_df : pandas.DataFrame
         Output of cycles_from_comments, must contain 't_inspi' and 't_expi'.
     flow_col : str, default 'Flow'
@@ -95,10 +95,10 @@ def ventilatory_from_cycles(
         ])
 
     # Required time axis
-    if 'time_abs' not in df_block.columns:
-        raise KeyError("df_block must contain a 'time_abs' column")
+    if 'time_block' not in df_block.columns:
+        raise KeyError("df_block must contain a 'time_block' column")
 
-    t = df_block['time_abs'].to_numpy()
+    t = df_block['time_block'].to_numpy()
     # Optional channels
     has_flow = flow_col in df_block.columns
     has_vol = (volume_col is not None) and (volume_col in df_block.columns)

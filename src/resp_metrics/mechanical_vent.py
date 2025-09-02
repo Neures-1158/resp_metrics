@@ -54,7 +54,7 @@ def mechanical_from_cycles(
 ) -> pd.DataFrame:
     """Compute mechanical ventilation metrics per cycle."""
 
-    needed = {"time_abs", pressure_col, flow_col}
+    needed = {"time_block", pressure_col, flow_col}
     if df_block is None or df_block.empty or not needed.issubset(df_block.columns):
         return pd.DataFrame(columns=[
             "n_cycle","t_inspi","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
@@ -74,7 +74,7 @@ def mechanical_from_cycles(
     if "t_next_inspi" not in cycles_df.columns:
         raise KeyError("cycles_df must contain 't_next_inspi'")
 
-    t = df_block["time_abs"].to_numpy()
+    t = df_block["time_block"].to_numpy()
     P = df_block[pressure_col].to_numpy()
     F = df_block[flow_col].to_numpy().astype(float) / 60.0  # L/min -> L/s, insp positive
     
