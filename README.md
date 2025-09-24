@@ -20,6 +20,10 @@ Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed
 - Outputs per-cycle DataFrames with standard metrics (BF, VT, VE, Ti, Te, I:E, PIF, PEF, PTP, WOB).
 - For mechanical ventilation, also returns PEEP, Ppeak, ΔP, MAP, etc. (Pplat, Cstat, R left NaN for now in absence of inspiratory hold AND detection). 
 
+## Usage
+
+See [`examples/example_usage.py`](examples/example_usage.py) and [`examples/example_notebook.ipynb`](examples/example_notebook.ipynb).
+
 ## Installation
 
 You can install in two ways:
@@ -39,10 +43,6 @@ git clone https://github.com/Neures-1158/resp_metrics.git
 cd resp_metrics
 pip install -e .
 ```
-
-## Usage
-
-See [`examples/example_usage.py`](examples/example_usage.py) for full code.
 
 ## Contributors & Maintainers
 
