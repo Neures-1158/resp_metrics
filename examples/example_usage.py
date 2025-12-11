@@ -52,7 +52,8 @@ def main():
         cycles,
         flow_col="Flow",
         volume_col=None,
-        pressure_col= "Pressure",
+        pressure_col="Pressure",
+        pes_col=None,  # Set to "Pes" if esophageal pressure available for WOB
         flow_unit="L/s"
     )
     print("=== Ventilatory Metrics (Spontaneous Breathing) ===")
@@ -69,7 +70,8 @@ def main():
         flow_col="Flow",
         flow_unit="L/s",
         volume_col=None,
-        pressure_col="Pressure",               # No pressure channel for spontaneous
+        pressure_col="Pressure",
+        pes_col=None,  # Set to "Pes" if esophageal pressure available for WOB
         mechanically_ventilated=False
     )
     print("=== High-level API Results: Spontaneous Breathing ===")
@@ -93,7 +95,9 @@ def main():
         cycles_mv,
         flow_col="Flow",
         volume_col=None,
-        pressure_col= "Pressure")
+        pressure_col="Pressure",
+        flow_unit="L/min"  # Specify flow unit for correct VT calculation
+    )
     print(result_mech)
 
     # Mechanical ventilation example using high-level API

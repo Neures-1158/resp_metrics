@@ -14,7 +14,7 @@ Workflow:
 """
 
 from __future__ import annotations
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Union
 
 from labchart_parser import LabChartFile
 from .cycles import cycles_from_comments
@@ -29,54 +29,55 @@ except Exception:  # pragma: no cover - absence is allowed
     _HAS_VENTILATOR = False
 
 
-def compute_from_labchart(
-    path: str,
+def _process_single_block(
+    lc: LabChartFile,
+    block: int,
     *,
-    block: int = 1,
     flow_col: str,
     flow_unit: str,
-    volume_col: Optional[str] = None,
-    pressure_col: Optional[str] = None,
-    mechanically_ventilated: bool = False,
-    insp_label: str = "INSPI",
-    expi_label: str = "EXPI",
+    volume_col: Optional[str],
+    pressure_col: Optional[str],
+    pes_col: Optional[str],
+    mechanically_ventilated: bool,
+    insp_label: str,
+    expi_label: str,
 ) -> Dict[str, object]:
-    """One-call pipeline with explicit channels and comment-based cycles.
-
+    """Process a single block and return results.
+    
     Parameters
     ----------
-    path : str
-        Path to LabChart .txt export.
-    block : int, default 1
+    lc : LabChartFile
+        The loaded LabChart file.
+    block : int
         Block index to analyze.
-    flow_col : str (required)
-        Name of the flow column (L/min).
-    volume_col : str or None, default None
-        Name of the volume column (L). If None, VT will be integrated from flow.
-    pressure_col : str or None, default None
-        Name of the pressure column (cmH2O). Required only if ventilator mechanics
-        are requested.
-    mechanically_ventilated : bool, default False
-        If True and pressure_col is provided (and ventilator module available),
-        compute ventilator mechanics (PEEP, Pplat, dP, Cstat, R, MAP). Otherwise skip.
+    flow_col : str
+        Name of the flow column.
+    flow_unit : str
+        Unit of the flow signal.
+    volume_col : str or None
+        Name of the volume column.
+    pressure_col : str or None
+        Name of the airway pressure column.
+    pes_col : str or None
+        Name of the esophageal pressure column.
+    mechanically_ventilated : bool
+        Whether to compute ventilator mechanics.
     insp_label, expi_label : str
-        Comment labels used to build cycles (default "INSPI"/"EXPI").
-
+        Comment labels for cycle detection.
+    
     Returns
     -------
     dict
         {
-          'meta': metadata dict,
-          'cycles': DataFrame (columns: n_cycle, t_insp, t_expi),
-          'ventilatory': DataFrame (per-cycle ventilatory variables),
-          'ventilator': DataFrame or None (per-cycle ventilator mechanics)
+          'cycles': DataFrame,
+          'ventilatory': DataFrame,
+          'ventilator': DataFrame or None
         }
     """
-    # 1) Load and select block
-    lc = LabChartFile.from_file(path)
+    # Get block data
     df_block = lc.get_block_df(block)
 
-    # 2) Cycles from comments (strictly)
+    # Cycles from comments (strictly)
     cycles = cycles_from_comments(
         lc.comments,
         block=block,
@@ -92,6 +93,7 @@ def compute_from_labchart(
             flow_col=flow_col,
             pressure_col=pressure_col,
             volume_col=volume_col,
+            flow_unit=flow_unit,
         )
         # Extract only mechanical columns for the 'ventilator' view
         mech_cols = [c for c in [
@@ -105,14 +107,135 @@ def compute_from_labchart(
             cycles,
             flow_col=flow_col,
             pressure_col=pressure_col,
+            pes_col=pes_col,
             volume_col=volume_col,
             flow_unit=flow_unit,
         )
         ventmech = None
 
     return {
-        "meta": lc.metadata,
         "cycles": cycles,
         "ventilatory": vent,
         "ventilator": ventmech,
+    }
+
+
+def compute_from_labchart(
+    path: str,
+    *,
+    block: Union[int, List[int], None] = 1,
+    flow_col: str,
+    flow_unit: str = "L/min",
+    volume_col: Optional[str] = None,
+    pressure_col: Optional[str] = None,
+    pes_col: Optional[str] = None,
+    mechanically_ventilated: bool = False,
+    insp_label: str = "INSPI",
+    expi_label: str = "EXPI",
+) -> Dict[str, object]:
+    """One-call pipeline with explicit channels and comment-based cycles.
+
+    Parameters
+    ----------
+    path : str
+        Path to LabChart .txt export.
+    block : int, list of int, or None, default 1
+        Block index(es) to analyze.
+        - int: analyze a single block, return DataFrames directly
+        - list of int: analyze specified blocks, return dict keyed by block number
+        - None: analyze ALL blocks in the file, return dict keyed by block number
+    flow_col : str (required)
+        Name of the flow column.
+    flow_unit : str, default 'L/min'
+        Unit of the flow signal. Accepted values are 'L/min' and 'L/s'.
+    volume_col : str or None, default None
+        Name of the volume column (L). If None, VT will be integrated from flow.
+    pressure_col : str or None, default None
+        Name of the airway pressure column (cmH2O). Required for PTP calculation
+        and for ventilator mechanics if mechanically_ventilated=True.
+    pes_col : str or None, default None
+        Name of the esophageal pressure column (cmH2O). Required for WOB
+        calculation. If not provided, WOB will be NaN.
+    mechanically_ventilated : bool, default False
+        If True and pressure_col is provided (and ventilator module available),
+        compute ventilator mechanics (PEEP, Pplat, dP, Cstat, R, MAP). Otherwise skip.
+    insp_label, expi_label : str
+        Comment labels used to build cycles (default "INSPI"/"EXPI").
+
+    Returns
+    -------
+    dict
+        For single block (int):
+        {
+          'meta': metadata dict,
+          'cycles': DataFrame (columns: n_cycle, t_insp, t_expi),
+          'ventilatory': DataFrame (per-cycle ventilatory variables),
+          'ventilator': DataFrame or None (per-cycle ventilator mechanics)
+        }
+        
+        For multiple blocks (list or None):
+        {
+          'meta': metadata dict,
+          'cycles': {block_num: DataFrame, ...},
+          'ventilatory': {block_num: DataFrame, ...},
+          'ventilator': {block_num: DataFrame or None, ...}
+        }
+    """
+    # Load the file
+    lc = LabChartFile.from_file(path)
+    
+    # Determine which blocks to process
+    if block is None:
+        # Get all available blocks from the file
+        blocks_to_process = sorted(lc.blocks)
+    elif isinstance(block, list):
+        blocks_to_process = block
+    else:
+        # Single block (int) - use original behavior
+        result = _process_single_block(
+            lc,
+            block,
+            flow_col=flow_col,
+            flow_unit=flow_unit,
+            volume_col=volume_col,
+            pressure_col=pressure_col,
+            pes_col=pes_col,
+            mechanically_ventilated=mechanically_ventilated,
+            insp_label=insp_label,
+            expi_label=expi_label,
+        )
+        return {
+            "meta": lc.metadata,
+            "cycles": result["cycles"],
+            "ventilatory": result["ventilatory"],
+            "ventilator": result["ventilator"],
+        }
+    
+    # Process multiple blocks
+    cycles_dict = {}
+    ventilatory_dict = {}
+    ventilator_dict = {}
+    
+    for blk in blocks_to_process:
+        result = _process_single_block(
+            lc,
+            blk,
+            flow_col=flow_col,
+            flow_unit=flow_unit,
+            volume_col=volume_col,
+            pressure_col=pressure_col,
+            pes_col=pes_col,
+            mechanically_ventilated=mechanically_ventilated,
+            insp_label=insp_label,
+            expi_label=expi_label,
+        )
+        cycles_dict[blk] = result["cycles"]
+        ventilatory_dict[blk] = result["ventilatory"]
+        ventilator_dict[blk] = result["ventilator"]
+    
+    return {
+        "meta": lc.metadata,
+        "cycles": cycles_dict,
+        "ventilatory": ventilatory_dict,
+        "ventilator": ventilator_dict,
     }

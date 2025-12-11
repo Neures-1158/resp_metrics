@@ -14,8 +14,8 @@ It returns a DataFrame with one row per cycle and the following columns:
   - VE: minute ventilation (L/min)
   - PIF, PEF: peak inspiratory/expiratory flow (magnitudes, L/s)
   - IE: I:E ratio (dimensionless), Ti/Te when both are finite
-  - WOB: work of breathing (J)
-  - PTP: pressure-time product (cmH2O·s)
+  - WOB: work of breathing (J) — requires esophageal pressure (Pes)
+  - PTP: pressure-time product (cmH2O·s) — computed relative to baseline pressure
 
 Assumptions:
   - df_block contains at least 'time_block' and the specified flow/volume columns
@@ -29,6 +29,11 @@ Notes:
     Otherwise VT is estimated by trapezoidal integration of flow between
     t_inspi and t_expi.
   - PEF is computed between t_expi and t_next_inspi when available; otherwise NaN.
+  - WOB requires esophageal pressure (pes_col) for physiologically meaningful values.
+    Using airway pressure (Paw) would not represent patient effort correctly.
+    If pes_col is not provided, WOB will be NaN.
+  - PTP is computed as integral of (P - baseline) where baseline is the median
+    pressure in a window before inspiration onset.
 """
 
 from __future__ import annotations
@@ -38,17 +43,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-
-def _nearest_idx(vec: np.ndarray, target: float) -> int:
-    """Return index of element in `vec` nearest to `target` (assumes 1D arrays)."""
-    return int(np.abs(vec - target).argmin())
-
-
-def _trapz(y: np.ndarray, x: np.ndarray) -> float:
-    """Safe trapezoidal integral; returns NaN when not enough samples."""
-    if y.size < 2 or x.size < 2:
-        return float("nan")
-    return float(np.trapz(y, x))
+from .utils import nearest_idx, trapz_safe, convert_flow_unit
 
 
 def ventilatory_from_cycles(
@@ -57,7 +52,9 @@ def ventilatory_from_cycles(
     flow_col: str = "Flow",
     volume_col: Optional[str] = "VolumeResp",
     pressure_col: Optional[str] = "Paw",
-    flow_unit: str = "L/min"
+    pes_col: Optional[str] = None,
+    flow_unit: str = "L/min",
+    ptp_window: float = 0.20,
 ) -> pd.DataFrame:
     """Compute ventilatory variables per cycle.
 
@@ -74,9 +71,16 @@ def ventilatory_from_cycles(
         Column name for volume signal (L). If None or missing, VT is
         estimated by integrating flow over inspiration.
     pressure_col : str or None, default 'Paw'
-        Column name for airway pressure signal (cmH2O). Required for WOB calculation.
+        Column name for airway pressure signal (cmH2O). Used for PTP calculation.
+    pes_col : str or None, default None
+        Column name for esophageal pressure signal (cmH2O). Required for WOB
+        calculation. If not provided, WOB will be NaN. Using airway pressure
+        (Paw) for WOB would not represent patient effort correctly.
     flow_unit : str, default 'L/min'
         Unit of the flow signal. Accepted values are 'L/min' and 'L/s'.
+    ptp_window : float, default 0.20
+        Window (seconds) before inspiration onset to compute baseline pressure
+        for PTP calculation.
 
     Returns
     -------
@@ -103,17 +107,14 @@ def ventilatory_from_cycles(
     has_flow = flow_col in df_block.columns
     has_vol = (volume_col is not None) and (volume_col in df_block.columns)
     has_pressure = (pressure_col is not None) and (pressure_col in df_block.columns)
+    has_pes = (pes_col is not None) and (pes_col in df_block.columns)
 
     flow = df_block[flow_col].to_numpy() if has_flow else None
     pressure = df_block[pressure_col].to_numpy() if has_pressure else None
+    pes = df_block[pes_col].to_numpy() if has_pes else None
     if flow is not None:
         # Convert flow to L/s if needed (spontaneous convention: inspiration negative)
-        flow = flow.astype(float)
-        if flow_unit.lower() not in ['l/s', 'l/sec', 'ls']:
-            if flow_unit.lower() in ['l/min', 'lpm']:
-                flow = flow / 60.0  # L/min -> L/s
-            else:
-                raise ValueError(f"Unsupported flow unit: {flow_unit}. Use 'L/s' or 'L/min'.")
+        flow = convert_flow_unit(flow, flow_unit)
     vol = df_block[volume_col].to_numpy() if has_vol else None
 
     # Use t_inspi for inspiration time
@@ -137,13 +138,13 @@ def ventilatory_from_cycles(
         te = float(row[te_col])
         t_next = row['t_next_inspi']
 
-        i_insp = _nearest_idx(t, ti)
-        i_expi = _nearest_idx(t, te)
+        i_insp = nearest_idx(t, ti)
+        i_expi = nearest_idx(t, te)
 
         # Durations
         Ti = float(t[i_expi] - t[i_insp])
         if pd.notna(t_next):
-            i_next = _nearest_idx(t, float(t_next))
+            i_next = nearest_idx(t, float(t_next))
             Ttot = float(t[i_next] - t[i_insp])
         else:
             i_next = None
@@ -158,7 +159,7 @@ def ventilatory_from_cycles(
             # integrate flow between i_insp and i_expi (inclusive)
             i0, i1 = sorted((i_insp, i_expi))
             # flow is negative during inspiration -> negate to return positive VT
-            VT = -_trapz(flow[i0:i1+1], t[i0:i1+1])
+            VT = -trapz_safe(flow[i0:i1+1], t[i0:i1+1])
         else:
             VT = float('nan')
 
@@ -181,20 +182,30 @@ def ventilatory_from_cycles(
 
         IE = (Ti / Te) if (np.isfinite(Ti) and np.isfinite(Te) and Te > 0) else float('nan')
 
-        # WOB calculation
-        if has_pressure and has_flow:
+        # WOB calculation (requires esophageal pressure for physiological accuracy)
+        if has_pes and has_flow:
             i0, i1 = sorted((i_insp, i_expi))
             # Conversion cmH2O -> kPa (1 cmH2O = 0.0980665 kPa)
-            pressure_kpa = pressure[i0:i1+1] * 0.0980665
-            # WOB en Joules (kPa * L = J)
-            WOB = -_trapz(pressure_kpa * flow[i0:i1+1], t[i0:i1+1])
+            pes_kpa = pes[i0:i1+1] * 0.0980665
+            # WOB in Joules (kPa * L = J)
+            # For spontaneous breathing: flow negative during inspiration
+            WOB = -trapz_safe(pes_kpa * flow[i0:i1+1], t[i0:i1+1])
         else:
             WOB = float('nan')
         
-        # PTP calculation (cmH2O·s)
+        # PTP calculation (cmH2O·s) relative to baseline pressure
         if has_pressure:
             i0, i1 = sorted((i_insp, i_expi))
-            PTP = _trapz(pressure[i0:i1+1], t[i0:i1+1])
+            # Compute baseline as median pressure in window before inspiration
+            t0_baseline = max(t[0], ti - ptp_window)
+            m_baseline = (t >= t0_baseline) & (t < ti)
+            if np.any(m_baseline):
+                P_baseline = float(np.nanmedian(pressure[m_baseline]))
+            else:
+                P_baseline = 0.0
+            # PTP = integral of (P - baseline) during inspiration
+            P_above_baseline = pressure[i0:i1+1] - P_baseline
+            PTP = trapz_safe(P_above_baseline, t[i0:i1+1])
         else:
             PTP = float('nan')
 
