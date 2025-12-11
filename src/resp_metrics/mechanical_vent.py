@@ -10,17 +10,26 @@ It returns a DataFrame with one row per cycle and the following columns:
   - n_cycle: 1-based cycle index
   - t_inspi: absolute time of inspiration onset
   - t_expi: absolute time of expiration onset
-  - t_next_inspi: absolute time of next inspiration onset
+  - Ti, Te, Ttot: inspiratory, expiratory and total cycle durations (s)
+  - BF: breathing frequency (breaths/min)
+  - VT: tidal volume (L)
+  - VE: minute ventilation (L/min)
+  - PIF, PEF: peak inspiratory/expiratory flow (L/s)
+  - IE: I:E ratio (dimensionless)
   - PEEP: positive end-expiratory pressure (cmH2O)
   - Ppeak: peak inspiratory pressure (cmH2O)
   - Pplat: plateau pressure (cmH2O), if low-flow plateau detected (depends on presence of an inspiratory hold; may be NaN)
-  - dP: driving pressure (Pplat - PEEP, fallback Ppeak - PEEP) (depends on Pplat)
+  - dP: driving pressure (Pplat - PEEP) (cmH2O). **WARNING**: When Pplat is unavailable
+        (no inspiratory hold), a fallback value (Ppeak - PEEP) is returned; this
+        OVERESTIMATES the true driving pressure as it includes the resistive component.
+        Interpretation of fallback dP values requires caution.
   - Cstat: static compliance (VT / (Pplat - PEEP), in L/cmH2O) (depends on Pplat)
   - R: airway resistance estimate ((Ppeak - Pplat)/PIF, cmH2O·s/L) (depends on Pplat)
   - MAP: mean airway pressure over the cycle (cmH2O)
-  
 
-
+Notes:
+  - Flow is assumed to be POSITIVE during inspiration (mechanical ventilation convention).
+  - Flow unit can be specified via flow_unit parameter (default: L/min).
 """
 
 from __future__ import annotations
@@ -28,17 +37,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-
-def _nearest_idx(vec: np.ndarray, target: float) -> int:
-    """Return index of element in vec nearest to target."""
-    return int(np.abs(vec - target).argmin())
-
-
-def _trapz(y: np.ndarray, x: np.ndarray) -> float:
-    """Safe trapezoidal integral."""
-    if y.size < 2 or x.size < 2:
-        return float("nan")
-    return float(np.trapz(y, x))
+from .utils import nearest_idx, trapz_safe, convert_flow_unit
 
 
 def mechanical_from_cycles(
@@ -48,21 +47,51 @@ def mechanical_from_cycles(
     pressure_col: str = "Pressure",
     volume_col: Optional[str] = "VolumeResp",
     *,
+    flow_unit: str = "L/min",
     peep_window: float = 0.20,         # seconds before insp
     plateau_flow_thresh: float = 0.05, # |Flow| < threshold = plateau
     plateau_min_dur: float = 0.10      # minimum duration for plateau
 ) -> pd.DataFrame:
-    """Compute mechanical ventilation metrics per cycle."""
+    """Compute mechanical ventilation metrics per cycle.
+    
+    Parameters
+    ----------
+    df_block : pandas.DataFrame
+        A single-block DataFrame with 'time_block' and channel columns.
+    cycles_df : pandas.DataFrame
+        Output of cycles_from_comments with 't_inspi', 't_expi', 't_next_inspi'.
+    flow_col : str, default 'Flow'
+        Column name for flow signal.
+    pressure_col : str, default 'Pressure'
+        Column name for airway pressure signal (cmH2O).
+    volume_col : str or None, default 'VolumeResp'
+        Column name for volume signal (L). If None, VT is integrated from flow.
+    flow_unit : str, default 'L/min'
+        Unit of the flow signal. Accepted values are 'L/min' and 'L/s'.
+    peep_window : float, default 0.20
+        Window (seconds) before inspiration to compute PEEP.
+    plateau_flow_thresh : float, default 0.05
+        Flow threshold (L/s) below which plateau is detected.
+    plateau_min_dur : float, default 0.10
+        Minimum duration (seconds) for a valid plateau.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        One row per cycle with ventilatory and mechanical variables.
+    """
+    # Define all output columns for empty DataFrame case
+    all_columns = [
+        "n_cycle", "t_inspi", "t_expi",
+        "Ti", "Ttot", "Te", "BF", "VT", "VE", "PIF", "PEF", "IE",
+        "PEEP", "Ppeak", "Pplat", "dP", "Cstat", "R", "MAP"
+    ]
 
     needed = {"time_block", pressure_col, flow_col}
     if df_block is None or df_block.empty or not needed.issubset(df_block.columns):
-        return pd.DataFrame(columns=[
-            "n_cycle","t_inspi","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
-        ])
+        return pd.DataFrame(columns=all_columns)
     if cycles_df is None or cycles_df.empty:
-        return pd.DataFrame(columns=[
-            "n_cycle","t_inspi","t_expi","PEEP","Ppeak","Pplat","dP","Cstat","R","MAP"
-        ])
+        return pd.DataFrame(columns=all_columns)
 
     # Use t_inspi for inspiration time
     ti_col = "t_inspi"
@@ -76,7 +105,7 @@ def mechanical_from_cycles(
 
     t = df_block["time_block"].to_numpy()
     P = df_block[pressure_col].to_numpy()
-    F = df_block[flow_col].to_numpy().astype(float) / 60.0  # L/min -> L/s, insp positive
+    F = convert_flow_unit(df_block[flow_col].to_numpy(), flow_unit)  # Convert to L/s
     
     has_vol = (volume_col is not None) and (volume_col in df_block.columns)
     V = df_block[volume_col].to_numpy() if has_vol else None
@@ -93,14 +122,14 @@ def mechanical_from_cycles(
         ti, te = float(r[ti_col]), float(r[te_col])
         t_next = r["t_next_inspi"]
 
-        i_insp = _nearest_idx(t, ti)
-        i_expi = _nearest_idx(t, te)
+        i_insp = nearest_idx(t, ti)
+        i_expi = nearest_idx(t, te)
         i0, i1 = sorted((i_insp, i_expi))
 
         # --- Ventilatory variables (mechanical ventilation: inspiration positive) ---
         Ti = float(t[i_expi] - t[i_insp])
         if pd.notna(t_next):
-            i_next = _nearest_idx(t, float(t_next))
+            i_next = nearest_idx(t, float(t_next))
             Ttot = float(t[i_next] - t[i_insp])
         else:
             i_next = None
@@ -111,7 +140,7 @@ def mechanical_from_cycles(
         if has_vol:
             VT = float(V[i1] - V[i0])
         else:
-            VT = _trapz(F[i0:i1+1], t[i0:i1+1])  # insp positive -> VT > 0
+            VT = trapz_safe(F[i0:i1+1], t[i0:i1+1])  # insp positive -> VT > 0
         VE = BF * VT if (np.isfinite(BF) and np.isfinite(VT)) else float('nan')
 
         seg_insp = F[i0:i1+1]
@@ -184,7 +213,7 @@ def mechanical_from_cycles(
             i_end = i_expi
         i2 = max(i_insp, 0)
         i3 = min(i_end, len(t) - 1)
-        MAP_int = _trapz(P[i2:i3+1], t[i2:i3+1])
+        MAP_int = trapz_safe(P[i2:i3+1], t[i2:i3+1])
         Ttot_map = t[i3] - t[i2] if i3 > i2 else float("nan")
         MAP = (MAP_int / Ttot_map) if (np.isfinite(MAP_int) and np.isfinite(Ttot_map) and Ttot_map > 0) else float("nan")
 
