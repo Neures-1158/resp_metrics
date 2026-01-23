@@ -33,7 +33,8 @@ Notes:
     Using airway pressure (Paw) would not represent patient effort correctly.
     If pes_col is not provided, WOB will be NaN.
   - PTP is computed as integral of (P - baseline) where baseline is the median
-    pressure in a window before inspiration onset.
+    pressure in a window before inspiration onset. If no samples are available
+    in the baseline window, the pressure at inspiration onset is used.
 """
 
 from __future__ import annotations
@@ -80,7 +81,8 @@ def ventilatory_from_cycles(
         Unit of the flow signal. Accepted values are 'L/min' and 'L/s'.
     ptp_window : float, default 0.20
         Window (seconds) before inspiration onset to compute baseline pressure
-        for PTP calculation.
+        for PTP calculation. If the window has no samples, the pressure at
+        inspiration onset is used.
 
     Returns
     -------
@@ -136,16 +138,27 @@ def ventilatory_from_cycles(
     for i, row in cyc.iterrows():
         ti = float(row[ti_col])
         te = float(row[te_col])
+        if te <= ti:
+            # Invalid cycle ordering
+            continue
         t_next = row['t_next_inspi']
 
         i_insp = nearest_idx(t, ti)
         i_expi = nearest_idx(t, te)
+        if i_expi <= i_insp:
+            # Invalid or zero-length inspiration window
+            continue
 
         # Durations
         Ti = float(t[i_expi] - t[i_insp])
         if pd.notna(t_next):
             i_next = nearest_idx(t, float(t_next))
-            Ttot = float(t[i_next] - t[i_insp])
+            if i_next > i_expi:
+                Ttot = float(t[i_next] - t[i_insp])
+            else:
+                i_next = None
+                t_next = float('nan')
+                Ttot = float('nan')
         else:
             i_next = None
             Ttot = float('nan')
@@ -202,7 +215,8 @@ def ventilatory_from_cycles(
             if np.any(m_baseline):
                 P_baseline = float(np.nanmedian(pressure[m_baseline]))
             else:
-                P_baseline = 0.0
+                # Fall back to pressure at inspiration onset to avoid arbitrary baseline
+                P_baseline = float(pressure[i_insp])
             # PTP = integral of (P - baseline) during inspiration
             P_above_baseline = pressure[i0:i1+1] - P_baseline
             PTP = trapz_safe(P_above_baseline, t[i0:i1+1])

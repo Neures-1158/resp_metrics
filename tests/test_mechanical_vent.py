@@ -51,6 +51,57 @@ class TestMechanicalEmptyInputs:
         assert result.empty
 
 
+class TestMechanicalCycleValidation:
+    """Tests for invalid or inconsistent cycle timing."""
+
+    def test_expi_before_inspi_skips_cycle(self):
+        """Cycles with t_expi <= t_inspi should be skipped."""
+        t = np.linspace(0, 2, 200)
+        df = pd.DataFrame({
+            "time_block": t,
+            "Flow": np.zeros(200),
+            "Pressure": np.ones(200) * 10.0
+        })
+        cycles = pd.DataFrame({
+            "n_cycle": [1],
+            "t_inspi": [1.0],
+            "t_expi": [0.5],  # invalid
+            "t_next_inspi": [1.5]
+        })
+
+        result = mechanical_from_cycles(
+            df, cycles, flow_col="Flow", pressure_col="Pressure", flow_unit="L/s"
+        )
+
+        assert result.empty
+
+    def test_next_inspi_before_expi_sets_ttot_nan(self):
+        """If next INSPI is before EXPI, Ttot/Te/BF should be NaN."""
+        t = np.linspace(0, 2, 200)
+        flow = np.zeros(200)
+        flow[t < 0.8] = 0.5
+        df = pd.DataFrame({
+            "time_block": t,
+            "Flow": flow,
+            "Pressure": np.ones(200) * 15.0
+        })
+        cycles = pd.DataFrame({
+            "n_cycle": [1],
+            "t_inspi": [0.0],
+            "t_expi": [1.0],
+            "t_next_inspi": [0.5]  # invalid ordering
+        })
+
+        result = mechanical_from_cycles(
+            df, cycles, flow_col="Flow", pressure_col="Pressure", flow_unit="L/s"
+        )
+
+        assert len(result) == 1
+        assert math.isnan(result.iloc[0]["Ttot"])
+        assert math.isnan(result.iloc[0]["Te"])
+        assert math.isnan(result.iloc[0]["BF"])
+
+
 class TestMechanicalFlowUnit:
     """Tests for flow unit conversion in mechanical ventilation."""
 
