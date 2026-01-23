@@ -120,17 +120,28 @@ def mechanical_from_cycles(
     for _, r in cyc.iterrows():
         ncy = int(r["n_cycle"])
         ti, te = float(r[ti_col]), float(r[te_col])
+        if te <= ti:
+            # Invalid cycle ordering
+            continue
         t_next = r["t_next_inspi"]
 
         i_insp = nearest_idx(t, ti)
         i_expi = nearest_idx(t, te)
         i0, i1 = sorted((i_insp, i_expi))
+        if i1 <= i0:
+            # Invalid or zero-length inspiration window
+            continue
 
         # --- Ventilatory variables (mechanical ventilation: inspiration positive) ---
         Ti = float(t[i_expi] - t[i_insp])
         if pd.notna(t_next):
             i_next = nearest_idx(t, float(t_next))
-            Ttot = float(t[i_next] - t[i_insp])
+            if i_next > i_expi:
+                Ttot = float(t[i_next] - t[i_insp])
+            else:
+                i_next = None
+                t_next = float('nan')
+                Ttot = float('nan')
         else:
             i_next = None
             Ttot = float('nan')

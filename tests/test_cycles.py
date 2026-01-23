@@ -201,3 +201,31 @@ class TestCyclesFromCommentsEdgeCases:
         assert result.iloc[0]["t_inspi"] == 1.0  # First valid INSPI
         assert result.iloc[0]["t_expi"] == 2.0
         assert result.iloc[0]["t_next_inspi"] == 3.0
+
+    def test_out_of_order_comments_sorted(self):
+        """Should sort by time before pairing cycles."""
+        comments = pd.DataFrame({
+            "block": [1, 1, 1, 1],
+            "time_block": [2.0, 0.0, 3.0, 1.0],
+            "Comment": ["INSPI", "INSPI", "EXPI", "EXPI"]
+        })
+        result = cycles_from_comments(comments, block=1)
+
+        assert len(result) == 1
+        assert result.iloc[0]["t_inspi"] == 0.0
+        assert result.iloc[0]["t_expi"] == 1.0
+        assert result.iloc[0]["t_next_inspi"] == 2.0
+
+    def test_expi_after_next_inspi_skipped(self):
+        """Should skip cycles where EXPI is after the next INSPI."""
+        comments = pd.DataFrame({
+            "block": [1, 1, 1, 1, 1],
+            "time_block": [0.0, 2.0, 3.0, 4.0, 5.0],
+            "Comment": ["INSPI", "INSPI", "EXPI", "INSPI", "EXPI"]
+        })
+        result = cycles_from_comments(comments, block=1)
+
+        assert len(result) == 1
+        assert result.iloc[0]["t_inspi"] == 2.0
+        assert result.iloc[0]["t_expi"] == 3.0
+        assert result.iloc[0]["t_next_inspi"] == 4.0
