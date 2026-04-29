@@ -93,7 +93,9 @@ def ventilatory_from_cycles(
         calculation. If not provided, WOB will be NaN. Using airway pressure
         (Paw) for WOB would not represent patient effort correctly.
     flow_unit : str, default 'L/min'
-        Unit of the flow signal. Accepted values are 'L/min' and 'L/s'.
+        Unit of the flow signal. Accepted values include 'L/min', 'L/s',
+        'mL/min', 'mL/s', and supported spelling/case variants handled by
+        ``convert_flow_unit``.
     ptp_window : float, default 0.20
         Window (seconds) before inspiration onset to compute baseline pressure
         for PTP calculation. If the window has no samples, the pressure at
