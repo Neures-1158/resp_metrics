@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import numpy as np
 
-# np.trapezoid was introduced in NumPy 2.0; fall back to np.trapz for older versions.
-_trapz = getattr(np, "trapezoid", np.trapz)
+# np.trapezoid was introduced in NumPy 2.0; np.trapz was removed in NumPy 2.2+.
+if hasattr(np, "trapezoid"):
+    _trapz = np.trapezoid
+else:
+    _trapz = np.trapz  # type: ignore[attr-defined]
 
 __all__ = ["nearest_idx", "trapz_safe", "convert_flow_unit"]
 
