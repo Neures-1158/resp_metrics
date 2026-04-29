@@ -12,16 +12,22 @@ Key functions:
 - compute_from_labchart: High-level one-call API.
 """
 
-from .cycles import cycles_from_comments
-from .ventilatory import ventilatory_from_cycles
-from .mechanical_vent import mechanical_from_cycles
+from importlib.metadata import PackageNotFoundError, version
+
 from .api import compute_from_labchart
+from .cycles import cycles_from_comments
+from .mechanical_vent import mechanical_from_cycles
+from .ventilatory import ventilatory_from_cycles
+
+try:
+    __version__ = version("resp_metrics")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "cycles_from_comments",
     "ventilatory_from_cycles",
     "mechanical_from_cycles",
     "compute_from_labchart",
+    "__version__",
 ]
-
-__version__ = "0.1.0"
