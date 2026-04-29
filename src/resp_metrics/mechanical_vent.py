@@ -87,7 +87,8 @@ def mechanical_from_cycles(
     -------
     pandas.DataFrame
         One row per cycle with ventilatory and mechanical variables. If provided,
-        a ``block`` column is prepended.
+        ``block_name`` and/or ``block`` columns are prepended, with
+        ``block_name`` appearing before ``block``.
 
     Raises
     ------
