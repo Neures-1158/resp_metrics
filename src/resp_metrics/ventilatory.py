@@ -78,7 +78,8 @@ def ventilatory_from_cycles(
         A single-block DataFrame as returned by LabChartFile.get_block_df(b).
         Must contain 'time_block' and the requested channel columns.
     cycles_df : pandas.DataFrame
-        Output of cycles_from_comments, must contain 't_inspi' and 't_expi'.
+        Output of cycles_from_comments. Must contain 't_inspi', 't_expi', and
+        't_next_inspi' (used to delimit the expiratory phase of each cycle).
     flow_col : str, default 'Flow'
         Column name for flow signal.
     volume_col : str or None, default 'VolumeResp'
