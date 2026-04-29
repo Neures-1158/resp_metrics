@@ -108,8 +108,9 @@ def ventilatory_from_cycles(
     Returns
     -------
     pandas.DataFrame
-        One row per cycle with columns. If block information is available,
-        a leading ``block`` column is included.
+        One row per cycle. When block information is available, optional
+        leading columns are prepended in this order: ``block_name``, ``block``,
+        followed by the per-cycle metric columns.
 
     Raises
     ------
