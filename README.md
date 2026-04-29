@@ -1,78 +1,103 @@
-# Resp_metrics
+# Resp Metrics
 
 [![CI](https://github.com/Neures-1158/resp_metrics/actions/workflows/ci.yml/badge.svg)](https://github.com/Neures-1158/resp_metrics/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](https://github.com/Neures-1158/resp_metrics)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, I:E, ...) computed from respiratory signals exported from ADInstruments LabChart.
+Cycle-by-cycle respiratory metrics from ADInstruments LabChart text exports.
+`resp_metrics` builds on
+[labchart_parser](https://github.com/Neures-1158/labchart_txt_parser).
 
-## Features
+## Export from LabChart
 
-- Parse LabChart `.txt` exports using [labchart_parser](https://github.com/Neures-1158/labchart_txt_parser).  Export from labchart as follows:
-- 
-  <img src="img/lc_signal_export.png" width="300" alt="LabChart screenshot showing signal export dialog">
+<img src="img/lc_signal_export.png" width="300" alt="LabChart export dialog">
 
-    - Before exporting in LabChart, make sure time is displayed as "Start from Block"
+Set time display to **"Start from Block"** before exporting, and make sure **"Block header"** is ticked.
 
-- Extract respiratory cycles from INSPI/EXPI comments obtained using a macro in labchart. Absence of automatic detection is deliberate as it forces thorough inspection of signals.
+Respiratory cycles are read from user-placed `INSPI` and `EXPI` comments. No
+automatic breath detection is performed; this is deliberate so signals are
+visually inspected before analysis.
 
-  <img src="img/lc_inspi-expi_comments.png" width="500" alt="Example of LabChart screenshot showing respiratory cycles detection with INSPI/EXPI comments">
+<img src="img/lc_inspi-expi_comments.png" width="500" alt="LabChart respiratory cycle comments">
 
-- Compute ventilatory variables for:
-  - **Spontaneous breathing** (Flow inspiration negative).
-  - **Mechanical ventilation** (Flow inspiration positive).
-- Outputs per-cycle DataFrames with standard metrics (BF, VT, VE, Ti, Te, I:E, PIF, PEF, PTP, WOB).
-- For mechanical ventilation, also returns PEEP, Ppeak, ΔP, MAP, etc. (Pplat, Cstat, R left NaN for now in absence of inspiratory hold AND detection). 
-
-## Limitations
-
-- **Plateau pressure (Pplat) detection**: Requires an inspiratory hold maneuver with a period of near-zero flow. Without an adequate plateau, Pplat, static compliance (Cstat), and airway resistance (R) remain NaN.
-- **Driving pressure fallback**: When Pplat is unavailable, dP is computed as Ppeak − PEEP. This **overestimates** the true driving pressure because it includes the resistive pressure component. Interpret with caution.
-- **Work of breathing (WOB)**: Requires esophageal pressure (Pes) to compute the true pressure-volume work. If only airway pressure (Paw) is available, WOB returns NaN.
-- **Pressure-time product (PTP)**: Computed as the integral of pressure above the value at inspiration onset, over the inspiratory phase only. Intended for estimating inspiratory muscle effort when using esophageal or airway pressure.
-- **Last cycle of each block**: Intentionally excluded from output because the end of the cycle (next inspiration onset) is undefined.
-- **Cycle detection**: Relies on user-placed INSPI/EXPI comments in LabChart. No automatic breath detection is performed—this is deliberate to encourage careful visual inspection of signals.
-
-## Usage
-
-See [`examples/example_usage.py`](examples/example_usage.py) and [`examples/example_notebook.ipynb`](examples/example_notebook.ipynb).
-
-## Installation
-
-You can install in two ways:
-
-### Option 1 – Direct install from GitHub
-Install directly into your environment with pip:
+## Install
 
 ```bash
 pip install git+https://github.com/Neures-1158/resp_metrics.git
 ```
 
-### Option 2 – Development mode (editable install)
-Clone the repository locally and install in editable mode:
+For development: `pip install -e ".[dev]"` (adds pytest, ruff, black, isort,
+build, and twine).
 
-```bash
-git clone https://github.com/Neures-1158/resp_metrics.git
-cd resp_metrics
-pip install -e .
+## Quick start
+
+```python
+from resp_metrics import compute_from_labchart
+
+result = compute_from_labchart(
+    "examples/data/labchart_file_vs.example.txt",
+    block=1,
+    flow_col="Flow",
+    flow_unit="L/s",
+    volume_col=None,
+    pressure_col="Pressure",
+    mechanically_ventilated=False,
+)
+
+result["cycles"].head()
+result["ventilatory"].head()
 ```
 
+Lower-level functions are available for custom pipelines:
 
-## Author
+```python
+from labchart_parser import LabChartFile
+from resp_metrics import cycles_from_comments, ventilatory_from_cycles
 
- Damien Bachasson, PhD | Inserm / Sorbonne Université | [![GitHub](https://img.shields.io/badge/-GitHub-181717?logo=github)](https://github.com/dambach) [![ORCID](https://img.shields.io/badge/-ORCID-A6CE39?logo=orcid&logoColor=white)](https://orcid.org/0000-0001-6335-9916) [![Scholar](https://img.shields.io/badge/-Scholar-4285F4?logo=googlescholar&logoColor=white)](https://scholar.google.fr/citations?user=DNt--nsAAAAJ) |
+lc = LabChartFile.from_file("data/recording.txt")
+cycles = cycles_from_comments(lc.comments, block=1)
+metrics = ventilatory_from_cycles(
+    lc.get_block_df(1),
+    cycles,
+    flow_col="Flow",
+    flow_unit="L/s",
+)
+```
 
-## References
+See [examples/example_usage.py](examples/example_usage.py) and
+[examples/example_notebook.ipynb](examples/example_notebook.ipynb).
 
-- Miller, M. R., Hankinson, J., Brusasco, V., Burgos, F., Casaburi, R., Coates, A., Crapo, R., Enright, P., van der Grinten, C. P., Gustafsson, P., Jensen, R., Johnson, D. C., MacIntyre, N., McKay, R., Navajas, D., Pedersen, O. F., Pellegrino, R., Viegi, G., Wanger, J., & ATS/ERS Task Force (2005). Standardisation of spirometry. *European Respiratory Journal*, 26(2), 319–338. https://doi.org/10.1183/09031936.05.00034805
+## Metrics
 
-## Contributions
+- Spontaneous breathing: inspiration is negative flow.
+- Mechanical ventilation: inspiration is positive flow.
+- Standard outputs: `BF`, `VT`, `VE`, `Ti`, `Te`, `Ttot`, `IE`, `PIF`, `PEF`,
+  `PTP`, and `WOB`.
+- Mechanical ventilation also returns `PEEP`, `Ppeak`, `Pplat`, `dP`, `Cstat`,
+  `R`, and `MAP` when signals support them.
 
-Contributions from lab members, collaborators, and the wider community are very welcome. Please feel free to contribute by submitting issues or pull requests on GitHub.
+## Limitations
 
-## License
+- `Pplat`, `Cstat`, and `R` require a low-flow inspiratory plateau.
+- If `Pplat` is unavailable, `dP = Ppeak - PEEP` is a fallback and
+  overestimates true driving pressure.
+- True `WOB` requires esophageal pressure (`Pes`); airway pressure is not
+  substituted.
+- The final cycle in each block is excluded because the next inspiration onset
+  is unknown.
 
-MIT License
-Copyright © 2025 Damien Bachasson
-(see the [LICENSE](LICENSE) file for details.)
+## Tests
+
+```bash
+pytest
+```
+
+## Maintainer
+
+Maintained under [NEURES](https://github.com/Neures-1158). Lead: Damien
+Bachasson, PhD ([GitHub](https://github.com/dambach) |
+[ORCID](https://orcid.org/0000-0001-6335-9916) |
+[Lab](https://sante.sorbonne-universite.fr/structures-de-recherche/neurophysiologie-respiratoire-experimentale-et-clinique)).
+Issues and PRs welcome.
+
+MIT licensed. See [LICENSE](LICENSE).

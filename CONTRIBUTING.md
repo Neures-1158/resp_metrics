@@ -1,55 +1,41 @@
-# Contributing to resp_metrics
+# Contributing
 
-Thank you for your interest in contributing to resp_metrics! 🎉
+Issues and PRs welcome.
 
-## How to Contribute
+## Setup
 
-### Reporting Bugs
+```bash
+git clone https://github.com/Neures-1158/resp_metrics.git
+cd resp_metrics
+python -m venv venv && source venv/bin/activate
+pip install -e ".[dev]"
+pre-commit install   # optional but recommended
+```
 
-If you find a bug, please open an issue on GitHub with:
-- A clear description of the problem
-- Steps to reproduce the issue
-- Expected vs actual behavior
-- Python version and OS
+Requires Python >=3.10.
 
-### Suggesting Features
+## Workflow
 
-Feature requests are welcome! Please open an issue describing:
-- The problem you're trying to solve
-- Your proposed solution
-- Any alternatives you've considered
+```bash
+pytest
+pytest tests/test_ventilatory.py::TestVentilatoryCycleValidation -v
+ruff check src/ tests/
+black src/ tests/
+isort --profile black src/ tests/
+```
 
-### Submitting Pull Requests
+CI runs tests across Linux/macOS/Windows x Python 3.10-3.12, plus blocking
+Black, isort, Ruff, and package build checks.
 
-1. **Fork the repository** and create your branch from `main`
-2. **Install in development mode**:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/resp_metrics.git
-   cd resp_metrics
-   pip install -e .[dev]
-   ```
-3. **Make your changes** with clear, descriptive commits
-4. **Add tests** for any new functionality
-5. **Run the test suite** to ensure nothing is broken:
-   ```bash
-   pytest tests/ --cov
-   ```
-6. **Submit a pull request** with a clear description of changes
+## Pull requests
 
-### Code Style
+- Branch from `main`, keep PRs small.
+- Add tests for behavior changes in cycle detection, unit conversion, metric
+  formulas, output schemas, or CSV export naming.
+- Update [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` for
+  user-visible changes.
+- Keep scientific assumptions explicit. Do not add automatic breath detection
+  unless the project direction changes.
+- Pre-commit should pass; CI must be green.
 
-- Use type hints for all function signatures
-- Follow NumPy docstring format
-- Run `ruff check src/` before submitting
-
-### Testing
-
-- Maintain test coverage above 90%
-- Use pytest fixtures for reusable test data
-- Mock external dependencies (e.g., file I/O)
-
-## Questions?
-
-Feel free to open an issue or reach out to the maintainers.
-
-Thank you for contributing! 🙏
+By contributing you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).

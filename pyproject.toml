@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,7 @@ description = "Cycle-by-cycle ventilatory metrics (BF, VT, VE, Ti, Te, Ttot, ...
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Damien Bachasson", email = "damien.bachasson@gmail.com" }]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.22",
   "pandas>=1.5",
@@ -17,9 +17,9 @@ dependencies = [
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent"
 ]
@@ -28,21 +28,45 @@ keywords = ["respiration", "ventilation", "physiology", "metrics"]
 [project.urls]
 Homepage = "https://github.com/Neures-1158/resp_metrics"
 Repository = "https://github.com/Neures-1158/resp_metrics"
+Changelog = "https://github.com/Neures-1158/resp_metrics/blob/main/CHANGELOG.md"
 Issues = "https://github.com/Neures-1158/resp_metrics/issues"
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.5"]
-dev = ["pytest>=7", "pytest-cov>=4.0", "ruff>=0.4", "mypy>=1.6"]
+dev = [
+  "pytest>=7",
+  "pytest-cov>=4.0",
+  "ruff>=0.4",
+  "black>=24.0",
+  "isort>=5.13",
+  "mypy>=1.6",
+  "twine>=5.0",
+  "build>=1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B"]
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = "test_*.py"
-python_functions = "test_*"
-python_classes = "Test*"
-addopts = "-v --tb=short --cov=resp_metrics --cov-report=term-missing --cov-report=html"
+python_files = ["test_*.py"]
+addopts = "-ra"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
