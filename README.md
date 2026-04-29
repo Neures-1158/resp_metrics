@@ -64,8 +64,7 @@ metrics = ventilatory_from_cycles(
 )
 ```
 
-See [examples/example_usage.py](examples/example_usage.py) and
-[examples/example_notebook.ipynb](examples/example_notebook.ipynb).
+See [examples/example_notebook.ipynb](examples/example_notebook.ipynb).
 
 ## Metrics
 
