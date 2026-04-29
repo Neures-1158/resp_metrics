@@ -4,11 +4,12 @@ Tests for resp_metrics.utils module.
 Tests utility functions with known values and edge cases.
 """
 
-import pytest
-import numpy as np
 import math
 
-from resp_metrics.utils import nearest_idx, trapz_safe, convert_flow_unit
+import numpy as np
+import pytest
+
+from resp_metrics.utils import convert_flow_unit, nearest_idx, trapz_safe
 
 
 class TestNearestIdx:
@@ -146,11 +147,27 @@ class TestConvertFlowUnit:
         assert convert_flow_unit(flow, "l/min")[0] == pytest.approx(1.0)
         assert convert_flow_unit(flow, "L/S")[0] == 60.0
 
+    def test_ml_s_to_l_s(self):
+        """Should convert mL/s to L/s by dividing by 1000."""
+        flow = np.array([500.0, 1000.0])
+        result = convert_flow_unit(flow, "mL/s")
+        np.testing.assert_array_almost_equal(result, [0.5, 1.0])
+
+    def test_ml_min_to_l_s(self):
+        """Should convert mL/min to L/s by dividing by 60000."""
+        flow = np.array([60000.0])
+        result = convert_flow_unit(flow, "mL/min")
+        assert result[0] == pytest.approx(1.0)
+
+    def test_ml_sec_variant(self):
+        """Should accept 'ml/sec' as mL/s."""
+        flow = np.array([1000.0])
+        result = convert_flow_unit(flow, "ml/sec")
+        assert result[0] == pytest.approx(1.0)
+
     def test_unsupported_unit_raises(self):
         """Should raise ValueError for unsupported units."""
         flow = np.array([1.0])
-        with pytest.raises(ValueError, match="Unsupported flow unit"):
-            convert_flow_unit(flow, "mL/s")
         with pytest.raises(ValueError, match="Unsupported flow unit"):
             convert_flow_unit(flow, "cfm")
 

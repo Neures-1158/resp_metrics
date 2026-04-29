@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ --cov=src/resp_metrics --cov-report=term-missing)",
+      "Bash(python -m pytest tests/ --cov=src/resp_metrics --cov-report=html --cov-report=term-missing:skip-covered -q)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(pip show *)",
+      "Bash(python -c \"import resp_metrics; print\\(resp_metrics.__file__\\)\")",
+      "Bash(pip install *)",
+      "Bash(ruff check *)",
+      "Bash(black --check src/ tests/)",
+      "Bash(isort --check --profile black src/ tests/)",
+      "Bash(black src/resp_metrics/ventilatory.py)",
+      "Bash(isort --profile black src/resp_metrics/ventilatory.py)"
+    ]
+  }
+}

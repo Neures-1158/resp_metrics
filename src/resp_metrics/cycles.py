@@ -9,7 +9,10 @@ on comment labels exported from LabChart (e.g. ``INSPI`` for inspiration,
 """
 
 from __future__ import annotations
+
 import pandas as pd
+
+__all__ = ["cycles_from_comments"]
 
 
 def cycles_from_comments(
@@ -17,6 +20,7 @@ def cycles_from_comments(
     block: int,
     insp_label: str = "INSPI",
     expi_label: str = "EXPI",
+    block_name: str | None = None,
 ) -> pd.DataFrame:
     """
     Build a cycles DataFrame by identifying complete respiratory cycles
@@ -38,6 +42,8 @@ def cycles_from_comments(
     -------
     pandas.DataFrame
         DataFrame with columns:
+          - ``block_name``: block name
+          - ``block``: block identifier
           - ``n_cycle``: 1-based cycle index within the block
           - ``t_inspi``: absolute time of inspiration onset
           - ``t_expi``: absolute time of expiration onset
@@ -46,12 +52,30 @@ def cycles_from_comments(
         INSPI markers.
     """
     if comments_df is None or comments_df.empty:
-        return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi", "t_next_inspi"])
+        return pd.DataFrame(
+            columns=[
+                "block_name",
+                "block",
+                "n_cycle",
+                "t_inspi",
+                "t_expi",
+                "t_next_inspi",
+            ]
+        )
 
     # filter
     c = comments_df.loc[comments_df["block"] == block].copy()
     if c.empty:
-        return pd.DataFrame(columns=["n_cycle", "t_inspi", "t_expi", "t_next_inspi"])
+        return pd.DataFrame(
+            columns=[
+                "block_name",
+                "block",
+                "n_cycle",
+                "t_inspi",
+                "t_expi",
+                "t_next_inspi",
+            ]
+        )
 
     # Ensure chronological ordering before pairing
     c = c.sort_values("time_block").reset_index(drop=True)
@@ -63,18 +87,36 @@ def cycles_from_comments(
     t_expi = t[lab == expi_label.upper()]
 
     rows = []
-    for i, ti in enumerate(t_inspi[:-1]):  # Skip last INSPI as it won't have a next INSPI
+    for i, ti in enumerate(
+        t_inspi[:-1]
+    ):  # Skip last INSPI as it won't have a next INSPI
         next_inspi = t_inspi[i + 1]  # Get next INSPI
         # Select the first EXPI strictly between this INSPI and the next INSPI
         ex_between = t_expi[(t_expi > ti) & (t_expi < next_inspi)]
         if ex_between.size:
-            rows.append({
-                "t_inspi": float(ti),
-                "t_expi": float(ex_between[0]),
-                "t_next_inspi": float(next_inspi)
-            })
+            rows.append(
+                {
+                    "t_inspi": float(ti),
+                    "t_expi": float(ex_between[0]),
+                    "t_next_inspi": float(next_inspi),
+                }
+            )
 
     out = pd.DataFrame(rows)
+    name = block_name if block_name is not None else f"Block {block}"
     if not out.empty:
         out.insert(0, "n_cycle", range(1, len(out) + 1))
+        out.insert(0, "block", block)
+        out.insert(0, "block_name", name)
+    else:
+        out = pd.DataFrame(
+            columns=[
+                "block_name",
+                "block",
+                "n_cycle",
+                "t_inspi",
+                "t_expi",
+                "t_next_inspi",
+            ]
+        )
     return out
