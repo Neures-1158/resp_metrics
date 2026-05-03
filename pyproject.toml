@@ -37,23 +37,12 @@ dev = [
   "pytest>=7",
   "pytest-cov>=4.0",
   "ruff>=0.4",
-  "black>=24.0",
-  "isort>=5.13",
-  "mypy>=1.6",
   "twine>=5.0",
   "build>=1.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.black]
-line-length = 88
-target-version = ["py310", "py311", "py312"]
-
-[tool.isort]
-profile = "black"
-line_length = 88
 
 [tool.ruff]
 line-length = 88
@@ -62,6 +51,10 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
