@@ -26,8 +26,7 @@ visually inspected before analysis.
 pip install git+https://github.com/Neures-1158/resp_metrics.git
 ```
 
-For development: `pip install -e ".[dev]"` (adds pytest, ruff, black, isort,
-build, and twine).
+For development: `pip install -e ".[dev]"` (adds pytest, ruff, build, and twine).
 
 ## Quick start
 
