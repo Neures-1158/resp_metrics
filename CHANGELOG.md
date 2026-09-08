@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New `resp_metrics.effort` module with `effort_from_cycles()`, computing
+  per-cycle indices of inspiratory effort from oesophageal, gastric and
+  transdiaphragmatic pressures: `dPes`, `dPga`, `dPdi`, `WOB`, `PTPes`,
+  `PTPga`, `PTPdi`, `PTPdi_PTPes` and `TTIdi`, plus `dPga_corr` and
+  `PTPga_corr`, which reference the gastric swing to the Pga nadir rather than
+  the end-expiratory baseline (see README "Limitations"). Definitions follow the ATS/ERS
+  Statement on Respiratory Muscle Testing (2002) and the ERS statement on
+  respiratory muscle testing at rest and during exercise (Laveneziana et al.,
+  2019). `Pdi` is read from `pdi_col` when given, otherwise derived as
+  `Pga - Pes`.
+- `compute_from_labchart()` accepts `pga_col`, `pdi_col` and `pdi_max`.
+  Providing `pes_col` merges the effort columns into the `ventilatory` table,
+  adds an `effort` key to the returned dict, and writes an
+  `<prefix>_effort_block<N>.csv` when `output_dir` is set.
+- `VT_Ti` (mean inspiratory flow, L/s) and `Ti_Ttot` (inspiratory duty cycle)
+  in both `ventilatory_from_cycles()` and `mechanical_from_cycles()`.
+
 ### Fixed
 
 - Fixed cycle pairing logic: EXPI is now required to fall strictly between two
@@ -19,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `WOB` moved from `ventilatory_from_cycles()` to `effort_from_cycles()`, and
+  `ventilatory_from_cycles()` no longer takes `pes_col`. `WOB` still appears
+  in the `ventilatory` table of `compute_from_labchart()` when `pes_col` is
+  given, so the high-level API is unchanged.
 - Aligned project tooling and documentation with `labchart_txt_parser`.
 - Raised Python support floor to 3.10.
 - Added blocking Black, isort, Ruff, and package build checks to CI.

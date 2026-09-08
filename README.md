@@ -69,18 +69,82 @@ See [examples/example_notebook.ipynb](examples/example_notebook.ipynb).
 
 - Spontaneous breathing: inspiration is negative flow.
 - Mechanical ventilation: inspiration is positive flow.
-- Standard outputs: `BF`, `VT`, `VE`, `Ti`, `Te`, `Ttot`, `IE`, `PIF`, `PEF`,
-  `PTP`, and `WOB`.
+- Standard outputs: `BF`, `VT`, `VT_Ti`, `VE`, `Ti`, `Te`, `Ttot`, `Ti_Ttot`,
+  `IE`, `PIF`, `PEF`, and `PTP`.
 - Mechanical ventilation also returns `PEEP`, `Ppeak`, `Pplat`, `dP`, `Cstat`,
   `R`, and `MAP` when signals support them.
+
+### Respiratory effort (Pes / Pga / Pdi)
+
+Pass `pes_col` (and optionally `pga_col`, `pdi_col`, `pdi_max`) to add
+per-cycle indices of inspiratory effort. They are merged into the
+`ventilatory` table and also returned as a standalone `effort` table.
+
+| Metric | Definition | Unit |
+| --- | --- | --- |
+| `VT_Ti` | `VT / Ti`, mean inspiratory flow | L·s⁻¹ |
+| `Ti_Ttot` | `Ti / Ttot`, inspiratory duty cycle | — |
+| `dPes` | `Pes_baseline − min(Pes)` over inspiration | cmH2O |
+| `dPga` | `max(Pga) − Pga_baseline` | cmH2O |
+| `dPga_corr` | same, referenced to the Pga nadir | cmH2O |
+| `dPdi` | `max(Pdi) − Pdi_baseline` | cmH2O |
+| `WOB` | `∫ (Pes_baseline − Pes) × (−Flow) dt`, work of breathing | J |
+| `PTPes` | `∫ (Pes_baseline − Pes) dt` | cmH2O·s·breath⁻¹ |
+| `PTPga` | `∫ (Pga − Pga_baseline) dt` | cmH2O·s·breath⁻¹ |
+| `PTPga_corr` | same, integrated from the Pga nadir | cmH2O·s·breath⁻¹ |
+| `PTPdi` | `∫ (Pdi − Pdi_baseline) dt` | cmH2O·s·breath⁻¹ |
+| `PTPdi_PTPes` | `PTPdi / PTPes`, diaphragmatic share of the effort | — |
+| `TTIdi` | `(mean inspiratory Pdi / Pdi_max) × (Ti / Ttot)` | — |
+
+The baseline of each channel is the median over the 0.2 s preceding
+inspiration onset, i.e. the resting end-expiratory level. `Pdi` is read from
+`pdi_col` when given, otherwise derived as `Pga − Pes`. Definitions follow the
+[ATS/ERS Statement on Respiratory Muscle Testing](https://www.atsjournals.org/doi/10.1164/rccm.166.4.518)
+(*Am J Respir Crit Care Med* 2002;165:518-624) and the
+[ERS statement on respiratory muscle testing at rest and during exercise](https://publications.ersnet.org/content/erj/53/6/1801214)
+(Laveneziana et al., *Eur Respir J* 2019;53:1801214).
+
+```python
+from resp_metrics import compute_from_labchart
+
+res = compute_from_labchart(
+    "examples/data/labchart_file_pressures.example.txt",
+    block=1,
+    flow_col="flow",
+    flow_unit="L/s",
+    volume_col=None,
+    pressure_col="Pmo",
+    pes_col="Pes",
+    pga_col="Pga",
+    pdi_col="Pdi",
+    pdi_max=97.0,  # cmH2O, measured during a maximal manoeuvre
+)
+res["effort"].head()
+```
 
 ## Limitations
 
 - `Pplat`, `Cstat`, and `R` require a low-flow inspiratory plateau.
 - If `Pplat` is unavailable, `dP = Ppeak - PEEP` is a fallback and
   overestimates true driving pressure.
-- True `WOB` requires esophageal pressure (`Pes`); airway pressure is not
-  substituted.
+- `WOB` requires esophageal pressure (`pes_col`) and flow; airway pressure is
+  not substituted, as it would not represent patient effort.
+- `PTPes` is not corrected for chest wall elastic recoil, which would require
+  chest wall elastance. It is a practical within-subject index of global
+  inspiratory effort, not an absolute measure.
+- Gastric metrics are reported twice. When expiratory abdominal muscles are
+  recruited, Pga is still elevated at the INSPI marker and falls as they relax
+  at the start of inspiration, so the end-expiratory baseline sits above the
+  relaxed level and `dPga` / `PTPga` are underestimated — an artifact ATS/ERS
+  2002 explicitly flags. `dPga_corr` and `PTPga_corr` reference the Pga nadir
+  instead (search window `pga_nadir_frac`, default the first third of
+  inspiration) and match the uncorrected values when no such recruitment is
+  present. `Pes` and `Pdi` are left uncorrected: their swings are an order of
+  magnitude larger so the same offset is negligible, and `Pdi` is derived from
+  `Pga` and `Pes` and cannot take an independent reference.
+- `TTIdi` needs `Pdi_max` from a maximal manoeuvre; it cannot be derived from
+  tidal breathing and stays `NaN` when not supplied. The diaphragm fatigue
+  threshold is a `TTIdi` of 0.15–0.18 (ATS/ERS).
 - The final cycle in each block is excluded because the next inspiration onset
   is unknown.
 
