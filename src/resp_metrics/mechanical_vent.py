@@ -13,9 +13,11 @@ It returns a DataFrame with one row per cycle and the following columns:
   - Ti, Te, Ttot: inspiratory, expiratory and total cycle durations (s)
   - BF: breathing frequency (breaths/min)
   - VT: tidal volume (L)
+  - VT_Ti: mean inspiratory flow, VT/Ti (L/s)
   - VE: minute ventilation (L/min)
   - PIF, PEF: peak inspiratory/expiratory flow (L/s)
   - IE: I:E ratio (dimensionless)
+  - Ti_Ttot: inspiratory duty cycle, Ti/Ttot (dimensionless)
   - PEEP: positive end-expiratory pressure (cmH2O)
   - Ppeak: peak inspiratory pressure (cmH2O)
   - Pplat: plateau pressure (cmH2O), if low-flow plateau detected (depends on presence of an inspiratory hold; may be NaN)
@@ -106,10 +108,12 @@ def mechanical_from_cycles(
         "Te",
         "BF",
         "VT",
+        "VT_Ti",
         "VE",
         "PIF",
         "PEF",
         "IE",
+        "Ti_Ttot",
         "PEEP",
         "Ppeak",
         "Pplat",
@@ -210,6 +214,12 @@ def mechanical_from_cycles(
             vt = trapz_safe(flow[i0 : i1 + 1], t[i0 : i1 + 1])
         ve = bf * vt if (np.isfinite(bf) and np.isfinite(vt)) else float("nan")
 
+        vt_ti = (
+            (vt / ti_duration)
+            if (np.isfinite(vt) and np.isfinite(ti_duration) and ti_duration > 0)
+            else float("nan")
+        )
+
         seg_insp = flow[i0 : i1 + 1]
         pif = float(np.nanmax(seg_insp)) if seg_insp.size else float("nan")
 
@@ -226,6 +236,12 @@ def mechanical_from_cycles(
                 and np.isfinite(te_duration)
                 and te_duration > 0
             )
+            else float("nan")
+        )
+
+        ti_ttot = (
+            (ti_duration / ttot)
+            if (np.isfinite(ti_duration) and np.isfinite(ttot) and ttot > 0)
             else float("nan")
         )
 
@@ -328,10 +344,12 @@ def mechanical_from_cycles(
                 "Te": te_duration,
                 "BF": bf,
                 "VT": vt,
+                "VT_Ti": vt_ti,
                 "VE": ve,
                 "PIF": pif,
                 "PEF": pef,
                 "IE": ie_ratio,
+                "Ti_Ttot": ti_ttot,
                 # Mechanical variables
                 "PEEP": peep,
                 "Ppeak": ppeak,

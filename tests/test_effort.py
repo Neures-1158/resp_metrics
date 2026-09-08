@@ -1,0 +1,448 @@
+"""Tests for respiratory effort indices (Pes / Pga / Pdi)."""
+
+import math
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from resp_metrics.effort import effort_from_cycles
+
+EFFORT_COLUMNS = [
+    "n_cycle",
+    "t_inspi",
+    "t_expi",
+    "dPes",
+    "dPga",
+    "dPga_corr",
+    "dPdi",
+    "WOB",
+    "PTPes",
+    "PTPga",
+    "PTPga_corr",
+    "PTPdi",
+    "PTPdi_PTPes",
+    "TTIdi",
+]
+
+
+def _rect_effort(pes_amp=-10.0, pga_amp=4.0, fs=100, dur=6.0):
+    """One cycle: baseline 0, inspiration [1, 2] held at the given amplitudes.
+
+    The window is inclusive of t_expi, matching how the package slices cycles.
+    """
+    t = np.arange(0, dur, 1 / fs)
+    pes = np.zeros_like(t)
+    pga = np.zeros_like(t)
+    insp = (t >= 1.0) & (t <= 2.0)
+    pes[insp] = pes_amp
+    pga[insp] = pga_amp
+    df = pd.DataFrame({"time_block": t, "Pes": pes, "Pga": pga})
+    cycles = pd.DataFrame(
+        {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [4.0]}
+    )
+    return df, cycles
+
+
+class TestEffortEmptyInputs:
+    """Empty or missing inputs return an empty frame with the full schema."""
+
+    def test_empty_signal_returns_empty_with_columns(self):
+        """An empty df_block yields an empty frame carrying every column."""
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [4.0]}
+        )
+        result = effort_from_cycles(pd.DataFrame(), cycles)
+        assert result.empty
+        assert list(result.columns) == EFFORT_COLUMNS
+
+    def test_empty_cycles_returns_empty_with_columns(self):
+        """An empty cycles_df yields an empty frame carrying every column."""
+        df, _ = _rect_effort()
+        result = effort_from_cycles(df, pd.DataFrame())
+        assert result.empty
+        assert list(result.columns) == EFFORT_COLUMNS
+
+    def test_none_inputs_return_empty(self):
+        """None inputs are tolerated and yield an empty frame."""
+        assert effort_from_cycles(None, None).empty
+
+
+class TestEffortMissingColumns:
+    """Missing required columns raise, missing channels yield NaN."""
+
+    def test_missing_time_block_raises(self):
+        """df_block without 'time_block' raises KeyError."""
+        _, cycles = _rect_effort()
+        df = pd.DataFrame({"Pes": [0.0, 1.0], "Pga": [0.0, 1.0]})
+        with pytest.raises(KeyError, match="time_block"):
+            effort_from_cycles(df, cycles)
+
+    @pytest.mark.parametrize("missing", ["t_inspi", "t_expi", "t_next_inspi"])
+    def test_missing_cycle_column_raises(self, missing):
+        """cycles_df without a required time column raises KeyError."""
+        df, cycles = _rect_effort()
+        with pytest.raises(KeyError, match=missing):
+            effort_from_cycles(df, cycles.drop(columns=[missing]))
+
+    def test_no_pressure_channels_gives_nan(self):
+        """Without any pressure channel every metric is NaN, not a default."""
+        df, cycles = _rect_effort()
+        result = effort_from_cycles(df[["time_block"]], cycles)
+        row = result.iloc[0]
+        for col in ("dPes", "dPga", "dPdi", "PTPes", "PTPga", "PTPdi", "TTIdi"):
+            assert math.isnan(row[col])
+
+    def test_pes_only_gives_pes_metrics(self):
+        """With Pes alone, only the Pes metrics are finite."""
+        df, cycles = _rect_effort()
+        result = effort_from_cycles(df.drop(columns=["Pga"]), cycles, pga_col=None)
+        row = result.iloc[0]
+        assert row["dPes"] == pytest.approx(10.0, rel=1e-2)
+        assert math.isnan(row["dPga"])
+        assert math.isnan(row["dPdi"])
+
+
+class TestEffortSwings:
+    """Inspiratory pressure swings, reported as positive magnitudes."""
+
+    def test_swings_match_known_amplitudes(self):
+        """Pes falls 10, Pga rises 4, so Pdi rises 14 cmH2O."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["dPes"] == pytest.approx(10.0, rel=1e-2)
+        assert row["dPga"] == pytest.approx(4.0, rel=1e-2)
+        assert row["dPdi"] == pytest.approx(14.0, rel=1e-2)
+
+    def test_dpdi_equals_dpes_plus_dpga(self):
+        """With a synchronous rectangular effort, dPdi = dPes + dPga."""
+        df, cycles = _rect_effort(pes_amp=-7.5, pga_amp=2.5)
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["dPdi"] == pytest.approx(row["dPes"] + row["dPga"], rel=1e-2)
+
+    def test_falling_pga_gives_negative_swing(self):
+        """A gastric pressure that falls during inspiration is not clipped."""
+        df, cycles = _rect_effort(pga_amp=-3.0)
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["dPga"] < 0
+
+
+class TestEffortPTP:
+    """Pressure-time products, integrated over inspiration."""
+
+    def test_ptp_equals_amplitude_times_duration(self):
+        """A 10 cmH2O deflection held 1.0 s gives PTPes = 10 cmH2O.s."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["PTPes"] == pytest.approx(10.0, rel=5e-2)
+        assert row["PTPga"] == pytest.approx(4.0, rel=5e-2)
+        assert row["PTPdi"] == pytest.approx(14.0, rel=5e-2)
+
+    def test_ptp_positive_for_inspiratory_effort(self):
+        """All three PTPs are positive for a normal inspiratory effort."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["PTPes"] > 0
+        assert row["PTPga"] > 0
+        assert row["PTPdi"] > 0
+
+    def test_baseline_offset_cancels(self):
+        """A constant DC offset on both channels leaves the metrics unchanged."""
+        df, cycles = _rect_effort()
+        shifted = df.copy()
+        shifted["Pes"] = shifted["Pes"] + 25.0
+        shifted["Pga"] = shifted["Pga"] - 13.0
+        base = effort_from_cycles(df, cycles).iloc[0]
+        offset = effort_from_cycles(shifted, cycles).iloc[0]
+        for col in ("dPes", "dPga", "dPdi", "PTPes", "PTPga", "PTPdi"):
+            assert offset[col] == pytest.approx(base[col], rel=1e-6)
+
+
+class TestEffortPdiDerivation:
+    """Pdi is read from its channel or derived as Pga - Pes."""
+
+    def test_recorded_pdi_matches_derived(self):
+        """Reading Pdi from a channel matches deriving it from Pga - Pes."""
+        df, cycles = _rect_effort()
+        derived = effort_from_cycles(df, cycles).iloc[0]
+        with_channel = df.assign(Pdi=df["Pga"] - df["Pes"])
+        recorded = effort_from_cycles(with_channel, cycles, pdi_col="Pdi").iloc[0]
+        assert recorded["dPdi"] == pytest.approx(derived["dPdi"], rel=1e-9)
+        assert recorded["PTPdi"] == pytest.approx(derived["PTPdi"], rel=1e-9)
+
+    def test_pdi_channel_takes_precedence(self):
+        """An explicit pdi_col is used rather than the Pga - Pes derivation."""
+        df, cycles = _rect_effort()
+        df = df.assign(Pdi=(df["Pga"] - df["Pes"]) / 2.0)
+        row = effort_from_cycles(df, cycles, pdi_col="Pdi").iloc[0]
+        assert row["dPdi"] == pytest.approx(7.0, rel=1e-2)
+
+    def test_missing_pdi_col_falls_back_to_derivation(self):
+        """A pdi_col absent from df_block falls back to Pga - Pes."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles, pdi_col="NotThere").iloc[0]
+        assert row["dPdi"] == pytest.approx(14.0, rel=1e-2)
+
+
+class TestEffortRatios:
+    """PTPdi:PTPes, the diaphragmatic share of the inspiratory effort."""
+
+    def test_ratio_matches_component_ptps(self):
+        """PTPdi_PTPes equals PTPdi divided by PTPes."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["PTPdi_PTPes"] == pytest.approx(
+            row["PTPdi"] / row["PTPes"], rel=1e-9
+        )
+        assert row["PTPdi_PTPes"] == pytest.approx(1.4, rel=1e-2)
+
+    def test_ratio_nan_when_ptpes_not_positive(self):
+        """A null Pes effort makes the ratio undefined rather than infinite."""
+        df, cycles = _rect_effort(pes_amp=0.0)
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert math.isnan(row["PTPdi_PTPes"])
+
+
+class TestEffortTTIdi:
+    """Tension-time index of the diaphragm (ATS/ERS definition)."""
+
+    def test_ttidi_equals_ptpdi_over_pdimax_ttot(self):
+        """TTIdi = (mean inspiratory Pdi / Pdi_max) x (Ti/Ttot) = PTPdi/(Pdi_max.Ttot)."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles, pdi_max=100.0).iloc[0]
+        # Ttot = 4 - 1 = 3 s, PTPdi ~ 14 cmH2O.s
+        assert row["TTIdi"] == pytest.approx(row["PTPdi"] / (100.0 * 3.0), rel=1e-9)
+        assert row["TTIdi"] == pytest.approx(14.0 / 300.0, rel=5e-2)
+
+    def test_ttidi_nan_without_pdi_max(self):
+        """Pdi_max is not derivable from tidal breathing: TTIdi stays NaN."""
+        df, cycles = _rect_effort()
+        assert math.isnan(effort_from_cycles(df, cycles).iloc[0]["TTIdi"])
+
+    def test_ttidi_nan_for_non_positive_pdi_max(self):
+        """A non-positive Pdi_max is rejected rather than producing a sign flip."""
+        df, cycles = _rect_effort()
+        assert math.isnan(effort_from_cycles(df, cycles, pdi_max=0.0).iloc[0]["TTIdi"])
+
+    def test_ttidi_nan_without_next_inspi(self):
+        """Without t_next_inspi, Ttot is unknown and TTIdi is NaN."""
+        df, cycles = _rect_effort()
+        cycles["t_next_inspi"] = np.nan
+        assert math.isnan(
+            effort_from_cycles(df, cycles, pdi_max=100.0).iloc[0]["TTIdi"]
+        )
+
+    def test_ttidi_scales_inversely_with_pdi_max(self):
+        """Doubling Pdi_max halves TTIdi."""
+        df, cycles = _rect_effort()
+        a = effort_from_cycles(df, cycles, pdi_max=50.0).iloc[0]["TTIdi"]
+        b = effort_from_cycles(df, cycles, pdi_max=100.0).iloc[0]["TTIdi"]
+        assert b == pytest.approx(a / 2.0, rel=1e-9)
+
+
+class TestEffortCycleValidation:
+    """Invalid cycles are dropped, as elsewhere in the package."""
+
+    def test_expi_before_inspi_skips_cycle(self):
+        """A cycle whose EXPI precedes its INSPI is dropped."""
+        df, _ = _rect_effort()
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [2.0], "t_expi": [1.0], "t_next_inspi": [4.0]}
+        )
+        result = effort_from_cycles(df, cycles)
+        assert result.empty
+        assert list(result.columns) == EFFORT_COLUMNS
+
+    def test_zero_length_inspiration_skips_cycle(self):
+        """A cycle whose inspiration snaps to a single sample is dropped."""
+        df, _ = _rect_effort()
+        cycles = pd.DataFrame(
+            {
+                "n_cycle": [1],
+                "t_inspi": [1.0],
+                "t_expi": [1.0 + 1e-9],
+                "t_next_inspi": [4.0],
+            }
+        )
+        assert effort_from_cycles(df, cycles).empty
+
+    def test_n_cycle_synthesised_when_absent(self):
+        """A cycles_df without n_cycle gets a 1-based index."""
+        df, cycles = _rect_effort()
+        result = effort_from_cycles(df, cycles.drop(columns=["n_cycle"]))
+        assert result.iloc[0]["n_cycle"] == 1
+
+
+class TestEffortBlockColumns:
+    """block_name / block are prepended and stay leading."""
+
+    def test_block_columns_prepended(self):
+        """Explicit block identifiers appear first, block_name before block."""
+        df, cycles = _rect_effort()
+        result = effort_from_cycles(df, cycles, block=2, block_name="Block 2")
+        assert list(result.columns)[:2] == ["block_name", "block"]
+        assert result.iloc[0]["block"] == 2
+
+    def test_block_columns_inherited_from_cycles(self):
+        """Block identifiers carried by cycles_df are reused."""
+        df, cycles = _rect_effort()
+        cycles = cycles.assign(block=3, block_name="Block 3")
+        result = effort_from_cycles(df, cycles)
+        assert result.iloc[0]["block_name"] == "Block 3"
+
+
+class TestEffortWithSyntheticSignal:
+    """End-to-end check against the shared fixture."""
+
+    def test_effort_signal_metrics(self, effort_signal_df, effort_cycles_for_signal):
+        """Both cycles of the fixture reproduce the expected constants."""
+        # Expected values are the ExpectedEffort constants in conftest.py
+        result = effort_from_cycles(
+            effort_signal_df, effort_cycles_for_signal, pdi_max=100.0
+        )
+        assert len(result) == 2
+        for _, row in result.iterrows():
+            assert row["dPes"] == pytest.approx(10.0, rel=1e-2)
+            assert row["dPga"] == pytest.approx(4.0, rel=1e-2)
+            assert row["dPdi"] == pytest.approx(14.0, rel=1e-2)
+            assert row["PTPes"] == pytest.approx(10.0, rel=5e-2)
+            assert row["PTPga"] == pytest.approx(4.0, rel=5e-2)
+            assert row["PTPdi"] == pytest.approx(14.0, rel=5e-2)
+            assert row["PTPdi_PTPes"] == pytest.approx(1.4, rel=1e-2)
+            assert row["TTIdi"] == pytest.approx(0.035, rel=5e-2)
+
+
+class TestEffortWOB:
+    """Work of breathing, which needs both Pes and flow."""
+
+    @staticmethod
+    def _pes_and_flow():
+        """Pes drops to -10 cmH2O while inspiratory flow is -0.5 L/s for 1.0 s.
+
+        Pmus = Pes_baseline - Pes = 0 - (-10) = 10 cmH2O = 0.980665 kPa
+        -Flow = 0.5 L/s, so WOB = 0.980665 x 0.5 x 1.0 s ~ 0.490 J.
+        """
+        t = np.arange(0, 3, 0.01)
+        insp = (t >= 0.5) & (t <= 1.5)
+        df = pd.DataFrame(
+            {
+                "time_block": t,
+                "Flow": np.where(insp, -0.5, 0.0),
+                "Pes": np.where(insp, -10.0, 0.0),
+            }
+        )
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [0.5], "t_expi": [1.5], "t_next_inspi": [2.5]}
+        )
+        return df, cycles
+
+    def test_wob_matches_hand_computed_value(self):
+        """A 10 cmH2O effort at 0.5 L/s for 1.0 s gives about 0.49 J."""
+        df, cycles = self._pes_and_flow()
+        row = effort_from_cycles(
+            df, cycles, pga_col=None, flow_col="Flow", flow_unit="L/s"
+        ).iloc[0]
+        assert row["WOB"] == pytest.approx(0.49, rel=5e-2)
+        assert row["WOB"] > 0
+
+    def test_wob_nan_without_pes(self):
+        """Airway pressure is not substituted for Pes: no Pes means no WOB."""
+        df, cycles = self._pes_and_flow()
+        df = df.drop(columns=["Pes"]).assign(Paw=5.0)
+        row = effort_from_cycles(
+            df, cycles, pes_col=None, pga_col=None, flow_col="Flow", flow_unit="L/s"
+        ).iloc[0]
+        assert math.isnan(row["WOB"])
+
+    def test_wob_nan_without_flow(self):
+        """WOB needs the inspired volume, hence the flow signal."""
+        df, cycles = self._pes_and_flow()
+        row = effort_from_cycles(
+            df.drop(columns=["Flow"]), cycles, pga_col=None, flow_unit="L/s"
+        ).iloc[0]
+        assert math.isnan(row["WOB"])
+
+    def test_wob_respects_flow_unit(self):
+        """The same flow expressed in L/min yields the same WOB."""
+        df, cycles = self._pes_and_flow()
+        in_lps = effort_from_cycles(
+            df, cycles, pga_col=None, flow_col="Flow", flow_unit="L/s"
+        ).iloc[0]["WOB"]
+        in_lpm = effort_from_cycles(
+            df.assign(Flow=df["Flow"] * 60),
+            cycles,
+            pga_col=None,
+            flow_col="Flow",
+            flow_unit="L/min",
+        ).iloc[0]["WOB"]
+        assert in_lpm == pytest.approx(in_lps, rel=1e-9)
+
+
+class TestEffortPgaCorrected:
+    """dPga_corr / PTPga_corr, referenced to the Pga nadir."""
+
+    @staticmethod
+    def _with_abdominal_relaxation():
+        """Pga elevated at end-expiration, relaxing to 2, then rising to 12.
+
+        Baseline (median of the 0.2 s before onset) is 5. During inspiration
+        Pga first falls to 2 (abdominal relaxation) then ramps to 12.
+        Uncorrected: dPga = 12 - 5 = 7. Corrected: dPga = 12 - 2 = 10.
+        """
+        t = np.arange(0, 4, 0.01)
+        pga = np.full_like(t, 5.0)
+        insp = (t >= 1.0) & (t <= 2.0)
+        # relaxation over the first 0.3 s, then a linear ramp to 12
+        rel = (t >= 1.0) & (t < 1.3)
+        pga[rel] = 5.0 + (2.0 - 5.0) * (t[rel] - 1.0) / 0.3
+        ramp = (t >= 1.3) & (t <= 2.0)
+        pga[ramp] = 2.0 + (12.0 - 2.0) * (t[ramp] - 1.3) / 0.7
+        pga[~insp & (t > 2.0)] = 5.0
+        df = pd.DataFrame({"time_block": t, "Pes": np.zeros_like(t), "Pga": pga})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        return df, cycles
+
+    def test_corrected_swing_uses_nadir(self):
+        """With an abdominal relaxation dip, the corrected swing is larger."""
+        df, cycles = self._with_abdominal_relaxation()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["dPga"] == pytest.approx(7.0, rel=2e-2)
+        assert row["dPga_corr"] == pytest.approx(10.0, rel=2e-2)
+        assert row["dPga_corr"] > row["dPga"]
+
+    def test_corrected_ptp_is_positive(self):
+        """PTPga_corr integrates from the nadir and stays positive."""
+        df, cycles = self._with_abdominal_relaxation()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["PTPga_corr"] > 0
+
+    def test_matches_uncorrected_without_relaxation(self):
+        """With no expiratory recruitment the correction is a no-op."""
+        t = np.arange(0, 4, 0.01)
+        pga = np.zeros_like(t)
+        ramp = (t >= 1.0) & (t <= 2.0)
+        pga[ramp] = 8.0 * (t[ramp] - 1.0)
+        df = pd.DataFrame({"time_block": t, "Pes": np.zeros_like(t), "Pga": pga})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["dPga_corr"] == pytest.approx(row["dPga"], rel=1e-6)
+
+    def test_nan_without_pga(self):
+        """Both corrected columns are NaN when Pga is absent."""
+        df, cycles = _rect_effort()
+        row = effort_from_cycles(df, cycles, pga_col=None).iloc[0]
+        assert math.isnan(row["dPga_corr"])
+        assert math.isnan(row["PTPga_corr"])
+
+    def test_pdi_and_pes_untouched_by_correction(self):
+        """The correction is local to Pga: Pes and Pdi metrics are unchanged."""
+        df, cycles = self._with_abdominal_relaxation()
+        wide = effort_from_cycles(df, cycles, pga_nadir_frac=0.5).iloc[0]
+        narrow = effort_from_cycles(df, cycles, pga_nadir_frac=0.2).iloc[0]
+        for col in ("dPes", "PTPes", "dPdi", "PTPdi"):
+            assert wide[col] == pytest.approx(narrow[col], rel=1e-9)
+        assert wide["dPga"] == pytest.approx(narrow["dPga"], rel=1e-9)

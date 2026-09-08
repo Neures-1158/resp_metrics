@@ -8,7 +8,9 @@ Workflow:
 1) Load a LabChart .txt export via labchart_parser.LabChartFile
 2) Build cycles from INSPI/EXPI comments
 3) Always compute ventilatory metrics from flow/volume
-4) Optionally compute ventilator mechanics (PEEP, Pplat, etc.) if
+4) Compute respiratory effort indices (WOB, swings, PTPs, TTIdi) when a
+   `pes_col` is given
+5) Optionally compute ventilator mechanics (PEEP, Pplat, etc.) if
    `mechanically_ventilated=True` *and* a pressure channel name is given
    *and* the mechanical_vent module is available. (experimental)
 """
@@ -41,6 +43,32 @@ except Exception as exc:  # pragma: no cover - absence is allowed
     _HAS_VENTILATOR = False
     _VENTILATOR_IMPORT_ERROR = exc
 
+try:
+    # Optional respiratory effort metrics (Pes/Pga/Pdi)
+    from .effort import effort_from_cycles
+
+    _HAS_EFFORT = True
+    _EFFORT_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - absence is allowed
+    effort_from_cycles = None  # type: ignore
+    _HAS_EFFORT = False
+    _EFFORT_IMPORT_ERROR = exc
+
+# Effort columns extracted for the standalone 'effort' view
+_EFFORT_COLS = [
+    "dPes",
+    "dPga",
+    "dPga_corr",
+    "dPdi",
+    "WOB",
+    "PTPes",
+    "PTPga",
+    "PTPga_corr",
+    "PTPdi",
+    "PTPdi_PTPes",
+    "TTIdi",
+]
+
 
 def _process_single_block(
     lc: LabChartFile,
@@ -51,6 +79,9 @@ def _process_single_block(
     volume_col: str | None,
     pressure_col: str | None,
     pes_col: str | None,
+    pga_col: str | None,
+    pdi_col: str | None,
+    pdi_max: float | None,
     mechanically_ventilated: bool,
     insp_label: str,
     expi_label: str,
@@ -76,6 +107,12 @@ def _process_single_block(
         Name of the airway pressure column.
     pes_col : str or None
         Name of the esophageal pressure column.
+    pga_col : str or None
+        Name of the gastric pressure column.
+    pdi_col : str or None
+        Name of the transdiaphragmatic pressure column.
+    pdi_max : float or None
+        Maximal transdiaphragmatic pressure (cmH2O) used to normalise TTIdi.
     mechanically_ventilated : bool
         Whether to compute ventilator mechanics.
     insp_label, expi_label : str
@@ -91,7 +128,8 @@ def _process_single_block(
         {
           'cycles': DataFrame,
           'ventilatory': DataFrame,
-          'ventilator': DataFrame or None
+          'ventilator': DataFrame or None,
+          'effort': DataFrame or None
         }
     """
     # Get block data
@@ -166,7 +204,6 @@ def _process_single_block(
             cycles,
             flow_col=flow_col,
             pressure_col=pressure_col,
-            pes_col=pes_col,
             volume_col=volume_col,
             flow_unit=flow_unit,
             block=block,
@@ -175,6 +212,49 @@ def _process_single_block(
         vent = _with_block_columns(vent, block, block_name)
         ventmech = None
 
+    # Respiratory effort metrics (Pes/Pga/Pdi). Pressure-only, so they apply to
+    # spontaneous and mechanically ventilated recordings alike.
+    venteff = None
+    if pes_col is not None and not _HAS_EFFORT:
+        detail = (
+            f" Import error: {_EFFORT_IMPORT_ERROR}"
+            if _EFFORT_IMPORT_ERROR is not None
+            else ""
+        )
+        warnings.warn(
+            "pes_col was provided but respiratory effort metrics are "
+            f"unavailable; skipping them.{detail}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    elif pes_col is not None:
+        eff = effort_from_cycles(  # type: ignore[misc]
+            df_block,
+            cycles,
+            pes_col=pes_col,
+            pga_col=pga_col,
+            pdi_col=pdi_col,
+            flow_col=flow_col,
+            flow_unit=flow_unit,
+            pdi_max=pdi_max,
+        )
+        if not eff.empty:
+            # Drop the keys already carried by the ventilatory table to avoid
+            # duplicated columns with _x/_y suffixes.
+            dupes = [
+                c
+                for c in ("block_name", "block", "t_inspi", "t_expi")
+                if c in eff.columns
+            ]
+            vent = vent.merge(eff.drop(columns=dupes), on="n_cycle", how="left")
+            vent = _with_block_columns(vent, block, block_name)
+            eff_cols = [
+                c
+                for c in ["n_cycle", "t_inspi", "t_expi"] + _EFFORT_COLS
+                if c in vent.columns
+            ]
+            venteff = _with_block_columns(vent[eff_cols].copy(), block, block_name)
+
     _save_outputs(
         output_dir=output_dir,
         output_prefix=output_prefix,
@@ -182,12 +262,14 @@ def _process_single_block(
         cycles=cycles,
         ventilatory=vent,
         ventilator=ventmech,
+        effort=venteff,
     )
 
     return {
         "cycles": cycles,
         "ventilatory": vent,
         "ventilator": ventmech,
+        "effort": venteff,
     }
 
 
@@ -222,6 +304,7 @@ def _save_outputs(
     cycles: pd.DataFrame,
     ventilatory: pd.DataFrame,
     ventilator: pd.DataFrame | None,
+    effort: pd.DataFrame | None = None,
 ) -> None:
     """Optionally save outputs to CSV."""
     if output_dir is None:
@@ -234,6 +317,8 @@ def _save_outputs(
     ventilatory.to_csv(out_dir / f"{prefix}_metrics_{block_tag}.csv", index=False)
     if ventilator is not None:
         ventilator.to_csv(out_dir / f"{prefix}_ventilator_{block_tag}.csv", index=False)
+    if effort is not None:
+        effort.to_csv(out_dir / f"{prefix}_effort_{block_tag}.csv", index=False)
 
 
 def compute_from_labchart(
@@ -245,6 +330,9 @@ def compute_from_labchart(
     volume_col: str | None = None,
     pressure_col: str | None = None,
     pes_col: str | None = None,
+    pga_col: str | None = None,
+    pdi_col: str | None = None,
+    pdi_max: float | None = None,
     mechanically_ventilated: bool = False,
     insp_label: str = "INSPI",
     expi_label: str = "EXPI",
@@ -273,8 +361,18 @@ def compute_from_labchart(
         Name of the airway pressure column (cmH2O). Required for PTP calculation
         and for ventilator mechanics if mechanically_ventilated=True.
     pes_col : str or None, default None
-        Name of the esophageal pressure column (cmH2O). Required for WOB
-        calculation. If not provided, WOB will be NaN.
+        Name of the esophageal pressure column (cmH2O). Enables the
+        respiratory effort metrics (WOB, dPes, PTPes, ...). If not provided,
+        none of them are computed.
+    pga_col : str or None, default None
+        Name of the gastric pressure column (cmH2O). Enables dPga and PTPga,
+        and (with pes_col) the derivation of Pdi as ``Pga - Pes``.
+    pdi_col : str or None, default None
+        Name of a recorded transdiaphragmatic pressure column (cmH2O). When
+        omitted, Pdi is derived from ``pga_col - pes_col`` if both are given.
+    pdi_max : float or None, default None
+        Maximal transdiaphragmatic pressure (cmH2O) measured during a maximal
+        manoeuvre. Required to normalise TTIdi; otherwise TTIdi is NaN.
     mechanically_ventilated : bool, default False
         If True and pressure_col is provided (and ventilator module available),
         compute ventilator mechanics (PEEP, Pplat, dP, Cstat, R, MAP). Otherwise skip.
@@ -296,7 +394,8 @@ def compute_from_labchart(
           'meta': metadata dict,
           'cycles': DataFrame (columns: n_cycle, t_insp, t_expi),
           'ventilatory': DataFrame (per-cycle ventilatory variables),
-          'ventilator': DataFrame or None (per-cycle ventilator mechanics)
+          'ventilator': DataFrame or None (per-cycle ventilator mechanics),
+          'effort': DataFrame or None (per-cycle respiratory effort indices)
         }
 
         For multiple blocks (list or None):
@@ -304,7 +403,8 @@ def compute_from_labchart(
           'meta': metadata dict,
           'cycles': {block_num: DataFrame, ...},
           'ventilatory': {block_num: DataFrame, ...},
-          'ventilator': {block_num: DataFrame or None, ...}
+          'ventilator': {block_num: DataFrame or None, ...},
+          'effort': {block_num: DataFrame or None, ...}
         }
         All output DataFrames include leading ``block_name`` and ``block`` columns.
     """
@@ -330,6 +430,9 @@ def compute_from_labchart(
             volume_col=volume_col,
             pressure_col=pressure_col,
             pes_col=pes_col,
+            pga_col=pga_col,
+            pdi_col=pdi_col,
+            pdi_max=pdi_max,
             mechanically_ventilated=mechanically_ventilated,
             insp_label=insp_label,
             expi_label=expi_label,
@@ -346,12 +449,14 @@ def compute_from_labchart(
             "cycles": result["cycles"],
             "ventilatory": result["ventilatory"],
             "ventilator": result["ventilator"],
+            "effort": result["effort"],
         }
 
     # Process multiple blocks
     cycles_dict = {}
     ventilatory_dict = {}
     ventilator_dict = {}
+    effort_dict = {}
 
     for blk in blocks_to_process:
         result = _process_single_block(
@@ -362,6 +467,9 @@ def compute_from_labchart(
             volume_col=volume_col,
             pressure_col=pressure_col,
             pes_col=pes_col,
+            pga_col=pga_col,
+            pdi_col=pdi_col,
+            pdi_max=pdi_max,
             mechanically_ventilated=mechanically_ventilated,
             insp_label=insp_label,
             expi_label=expi_label,
@@ -374,10 +482,12 @@ def compute_from_labchart(
         cycles_dict[blk] = result["cycles"]
         ventilatory_dict[blk] = result["ventilatory"]
         ventilator_dict[blk] = result["ventilator"]
+        effort_dict[blk] = result["effort"]
 
     return {
         "meta": lc.metadata,
         "cycles": cycles_dict,
         "ventilatory": ventilatory_dict,
         "ventilator": ventilator_dict,
+        "effort": effort_dict,
     }

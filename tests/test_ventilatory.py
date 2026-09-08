@@ -262,11 +262,12 @@ class TestVentilatoryCycleValidation:
             "Te",
             "BF",
             "VT",
+            "VT_Ti",
             "VE",
             "PIF",
             "PEF",
             "IE",
-            "WOB",
+            "Ti_Ttot",
             "PTP",
         ]
 
@@ -335,65 +336,6 @@ class TestVentilatoryVE:
 
         # VE = BF * VT = 30 * 0.5 = 15 L/min
         assert result.iloc[0]["VE"] == pytest.approx(15.0, rel=1e-2)
-
-
-class TestVentilatoryWOB:
-    """Tests for work of breathing calculation."""
-
-    def test_wob_requires_pes(self):
-        """WOB should be NaN if pes_col not provided."""
-        t = np.linspace(0, 2, 200)
-        df = pd.DataFrame(
-            {
-                "time_block": t,
-                "Flow": np.ones(200) * -0.5,
-                "Paw": np.ones(200) * 5.0,  # Airway pressure, not esophageal
-            }
-        )
-        cycles = pd.DataFrame(
-            {"n_cycle": [1], "t_inspi": [0.0], "t_expi": [1.0], "t_next_inspi": [1.5]}
-        )
-
-        result = ventilatory_from_cycles(
-            df,
-            cycles,
-            flow_col="Flow",
-            pressure_col="Paw",
-            pes_col=None,  # No esophageal pressure
-            flow_unit="L/s",
-        )
-
-        assert math.isnan(result.iloc[0]["WOB"])
-
-    def test_wob_with_pes(self):
-        """WOB must be positive with standard subatmospheric Pes convention.
-
-        Pes baseline = 0 cmH2O (pre-inspiration), drops to -10 cmH2O during effort.
-        Pmus = Pes_baseline - Pes = 0 - (-10) = 10 cmH2O = 0.980665 kPa
-        Flow = -0.5 L/s (inspiration); -Flow = 0.5 L/s
-        WOB = ∫ 0.980665 × 0.5 dt over 1 s ≈ 0.490 J (positive)
-        """
-        t = np.linspace(0, 3, 300)
-        # Pre-inspiration baseline at Pes=0; inspiration from 0.5 to 1.5s
-        df = pd.DataFrame(
-            {
-                "time_block": t,
-                "Flow": np.where((t >= 0.5) & (t < 1.5), -0.5, 0.0),  # L/s
-                "Pes": np.where(
-                    (t >= 0.5) & (t < 1.5), -10.0, 0.0
-                ),  # cmH2O standard convention
-            }
-        )
-        cycles = pd.DataFrame(
-            {"n_cycle": [1], "t_inspi": [0.5], "t_expi": [1.5], "t_next_inspi": [2.5]}
-        )
-
-        result = ventilatory_from_cycles(
-            df, cycles, flow_col="Flow", pes_col="Pes", flow_unit="L/s"
-        )
-
-        assert result.iloc[0]["WOB"] == pytest.approx(0.49, rel=5e-2)
-        assert result.iloc[0]["WOB"] > 0  # Must be positive for physiological effort
 
 
 class TestVentilatoryVolumeColumnWarning:
@@ -499,7 +441,6 @@ class TestVentilatoryWithSyntheticSignal:
             flow_col="Flow",
             volume_col=None,  # Test integration
             pressure_col="Paw",
-            pes_col="Pes",
             flow_unit="L/min",
         )
 
@@ -520,8 +461,53 @@ class TestVentilatoryWithSyntheticSignal:
         # VT should be positive
         assert row["VT"] > 0
 
-        # WOB should be calculated (has Pes) and non-NaN.
-        # The fixture Pes = -5 + 3*flow has Pes baseline ≈ -5 cmH2O before inspiration
-        # and Pes drops further during effort; WOB should be positive.
-        assert not math.isnan(row["WOB"])
-        assert row["WOB"] > 0
+
+class TestVentilatoryDerivedRatios:
+    """VT/Ti (mean inspiratory flow) and Ti/Ttot (duty cycle)."""
+
+    @staticmethod
+    def _rect_cycle(ti=1.0, ttot=2.0, flow_amp=-0.5):
+        t = np.arange(0, 5, 0.01)
+        flow = np.zeros_like(t)
+        flow[(t >= 0.0) & (t <= ti)] = flow_amp
+        df = pd.DataFrame({"time_block": t, "Flow": flow})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [0.0], "t_expi": [ti], "t_next_inspi": [ttot]}
+        )
+        return df, cycles
+
+    def test_vt_ti_equals_vt_over_ti(self):
+        """A 0.5 L/s inspiratory flow held 1.0 s gives VT/Ti = 0.5 L/s."""
+        df, cycles = self._rect_cycle()
+        row = ventilatory_from_cycles(
+            df, cycles, flow_col="Flow", flow_unit="L/s", volume_col=None
+        ).iloc[0]
+        assert row["VT_Ti"] == pytest.approx(row["VT"] / row["Ti"], rel=1e-9)
+        assert row["VT_Ti"] == pytest.approx(0.5, rel=1e-2)
+
+    def test_ti_ttot_equals_duty_cycle(self):
+        """Ti = 1.0 s within a 2.0 s cycle gives a duty cycle of 0.5."""
+        df, cycles = self._rect_cycle()
+        row = ventilatory_from_cycles(
+            df, cycles, flow_col="Flow", flow_unit="L/s", volume_col=None
+        ).iloc[0]
+        assert row["Ti_Ttot"] == pytest.approx(0.5, rel=1e-2)
+
+    def test_ti_ttot_nan_without_next_inspi(self):
+        """Without t_next_inspi the total cycle time, hence Ti/Ttot, is unknown."""
+        df, cycles = self._rect_cycle()
+        cycles["t_next_inspi"] = np.nan
+        row = ventilatory_from_cycles(
+            df, cycles, flow_col="Flow", flow_unit="L/s", volume_col=None
+        ).iloc[0]
+        assert math.isnan(row["Ti_Ttot"])
+
+    def test_vt_ti_nan_without_flow_or_volume(self):
+        """With no flow and no volume channel, VT and therefore VT/Ti are NaN."""
+        t = np.arange(0, 5, 0.01)
+        df = pd.DataFrame({"time_block": t})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [0.0], "t_expi": [1.0], "t_next_inspi": [2.0]}
+        )
+        row = ventilatory_from_cycles(df, cycles, volume_col=None).iloc[0]
+        assert math.isnan(row["VT_Ti"])
