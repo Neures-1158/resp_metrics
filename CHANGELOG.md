@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dPmo` (baseline-referenced inspiratory swing) and `Pmo_mean` (absolute mean
   inspiratory pressure) in `ventilatory_from_cycles()`, both from
   `pressure_col`.
+- `Pes_ee`, the end-expiratory oesophageal pressure, in `effort_from_cycles()`.
+  Reported as an absolute value; an indirect marker of operating lung volume.
 
 ### Fixed
 

@@ -13,6 +13,7 @@ EFFORT_COLUMNS = [
     "n_cycle",
     "t_inspi",
     "t_expi",
+    "Pes_ee",
     "dPes",
     "dPga",
     "dPga_corr",
@@ -473,3 +474,48 @@ class TestEffortPgaCorrected:
             row = effort_from_cycles(df, cycles).iloc[0]
         assert math.isnan(row["dPga_corr"])
         assert math.isnan(row["PTPga_corr"])
+
+
+class TestEffortEndExpiratoryPes:
+    """Pes_ee, the end-expiratory oesophageal pressure."""
+
+    @staticmethod
+    def _cycle_with_eelv(rest_level):
+        """Pes sits at `rest_level` at rest and drops 10 cmH2O on inspiration."""
+        t = np.arange(0, 4, 0.01)
+        pes = np.full_like(t, rest_level)
+        pes[(t >= 1.0) & (t <= 2.0)] = rest_level - 10.0
+        df = pd.DataFrame({"time_block": t, "Pes": pes})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        return df, cycles
+
+    def test_reports_the_resting_level(self):
+        """Pes_ee is the pre-inspiratory level, not a difference."""
+        df, cycles = self._cycle_with_eelv(-5.0)
+        row = effort_from_cycles(df, cycles, pga_col=None).iloc[0]
+        assert row["Pes_ee"] == pytest.approx(-5.0, rel=1e-6)
+
+    def test_is_absolute_while_the_swing_is_not(self):
+        """A rise in resting level moves Pes_ee but leaves dPes and PTPes alone."""
+        low = effort_from_cycles(*self._cycle_with_eelv(-5.0), pga_col=None).iloc[0]
+        high = effort_from_cycles(*self._cycle_with_eelv(+2.0), pga_col=None).iloc[0]
+        assert high["Pes_ee"] - low["Pes_ee"] == pytest.approx(7.0, rel=1e-6)
+        assert high["dPes"] == pytest.approx(low["dPes"], rel=1e-9)
+        assert high["PTPes"] == pytest.approx(low["PTPes"], rel=1e-9)
+
+    def test_equals_the_ptp_baseline(self):
+        """Pes_ee is exactly the baseline PTPes and dPes are referenced to."""
+        df, cycles = self._cycle_with_eelv(-5.0)
+        row = effort_from_cycles(df, cycles, pga_col=None).iloc[0]
+        # baseline - min(Pes) = dPes, so min(Pes) = Pes_ee - dPes
+        assert row["Pes_ee"] - row["dPes"] == pytest.approx(-15.0, rel=1e-6)
+
+    def test_nan_without_pes(self):
+        """No Pes channel means no end-expiratory value."""
+        df, cycles = self._cycle_with_eelv(-5.0)
+        row = effort_from_cycles(
+            df.drop(columns=["Pes"]), cycles, pes_col=None, pga_col=None
+        ).iloc[0]
+        assert math.isnan(row["Pes_ee"])
