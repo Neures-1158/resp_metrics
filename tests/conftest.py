@@ -328,6 +328,47 @@ def signal_without_volume():
 
 
 # =============================================================================
+# RESPIRATORY EFFORT SIGNAL FIXTURES (Pes / Pga)
+# =============================================================================
+
+
+@pytest.fixture
+def effort_signal_df():
+    """Rectangular Pes/Pga deflections with hand-computable effort indices.
+
+    fs = 100 Hz over 10 s. Two identical cycles starting at t = 1.0 s and
+    t = 5.0 s. Baseline is 0 cmH2O outside inspiration; during the 1.0 s
+    inspiration Pes steps to -10 cmH2O and Pga to +4 cmH2O, so Pdi = Pga - Pes
+    steps to +14 cmH2O.
+
+    Expected per cycle (see ExpectedEffort): dPes = 10, dPga = 4, dPdi = 14
+    cmH2O; PTPes = 10, PTPga = 4, PTPdi = 14 cmH2O.s; PTPdi/PTPes = 1.4.
+    """
+    fs = 100
+    t = np.arange(0, 10, 1 / fs)
+    pes = np.zeros_like(t)
+    pga = np.zeros_like(t)
+    for onset in (1.0, 5.0):
+        insp = (t >= onset) & (t <= onset + 1.0)
+        pes[insp] = -10.0
+        pga[insp] = 4.0
+    return pd.DataFrame({"time_block": t, "Pes": pes, "Pga": pga, "Pdi": pga - pes})
+
+
+@pytest.fixture
+def effort_cycles_for_signal():
+    """Cycles matching effort_signal_df (Ti = 1.0 s, Ttot = 4.0 s)."""
+    return pd.DataFrame(
+        {
+            "n_cycle": [1, 2],
+            "t_inspi": [1.0, 5.0],
+            "t_expi": [2.0, 6.0],
+            "t_next_inspi": [5.0, 9.0],
+        }
+    )
+
+
+# =============================================================================
 # KNOWN VALUE CONSTANTS FOR ASSERTIONS
 # =============================================================================
 
@@ -362,3 +403,19 @@ class ExpectedMechanical:
     Pplat = 20.0  # cmH2O
     d_p = 15.0  # cmH2O
     Cstat = 0.024  # L/cmH2O (VT / dP)
+
+
+class ExpectedEffort:
+    """Expected values for effort_signal_df fixture."""
+
+    Ti = 1.0  # s
+    Ttot = 4.0  # s
+    d_pes = 10.0  # cmH2O
+    d_pga = 4.0  # cmH2O
+    d_pdi = 14.0  # cmH2O
+    PTPes = 10.0  # cmH2O.s per breath
+    PTPga = 4.0  # cmH2O.s per breath
+    PTPdi = 14.0  # cmH2O.s per breath
+    PTPdi_PTPes = 1.4  # dimensionless
+    Pdi_max = 100.0  # cmH2O
+    TTIdi = 0.035  # PTPdi / (Pdi_max * Ttot) = 14 / (100 * 4)

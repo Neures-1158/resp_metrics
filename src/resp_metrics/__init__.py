@@ -9,6 +9,7 @@ Key functions:
 - cycles_from_comments: Identify respiratory cycles based on comment timestamps.
 - ventilatory_from_cycles: Spontaneous-breathing ventilatory variables.
 - mechanical_from_cycles: Mechanical-ventilation per-cycle variables (ventilatory + mechanical).
+- effort_from_cycles: Respiratory effort indices from Pes/Pga/Pdi.
 - compute_from_labchart: High-level one-call API.
 """
 
@@ -16,6 +17,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .api import compute_from_labchart
 from .cycles import cycles_from_comments
+from .effort import effort_from_cycles
 from .mechanical_vent import mechanical_from_cycles
 from .ventilatory import ventilatory_from_cycles
 
@@ -27,6 +29,7 @@ except PackageNotFoundError:
 __all__ = [
     "cycles_from_comments",
     "ventilatory_from_cycles",
+    "effort_from_cycles",
     "mechanical_from_cycles",
     "compute_from_labchart",
     "__version__",

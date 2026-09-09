@@ -35,6 +35,9 @@ class MockLabChartFile:
                 "Flow": flow * 60,  # L/min
                 "Paw": np.ones(1000) * 5.0,
                 "Pressure": np.ones(1000) * 15.0,
+                # Pes falls and Pga rises during inspiration
+                "Pes": -5.0 - 10.0 * np.sin(2 * np.pi * t / 4),
+                "Pga": 3.0 + 4.0 * np.sin(2 * np.pi * t / 4),
             }
         )
 
@@ -73,6 +76,7 @@ class TestComputeFromLabchartReturnStructure:
         assert "cycles" in result
         assert "ventilatory" in result
         assert "ventilator" in result
+        assert "effort" in result
 
     @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
     def test_meta_is_dict(self):
@@ -130,11 +134,12 @@ class TestComputeFromLabchartSpontaneous:
             "Ttot",
             "BF",
             "VT",
+            "VT_Ti",
             "VE",
             "PIF",
             "PEF",
             "IE",
-            "WOB",
+            "Ti_Ttot",
             "PTP",
         ]
         for col in expected_cols:
@@ -353,9 +358,9 @@ class TestComputeFromLabchartPesPropagation:
             mechanically_ventilated=False,
         )
 
-        # WOB should be calculated when Pes is provided
-        # (actual value depends on signal)
+        # WOB is computed by the effort module once Pes is provided
         assert "WOB" in result["ventilatory"].columns
+        assert result["effort"] is not None
 
 
 class MockLabChartFileMultiBlock:
@@ -399,6 +404,9 @@ class MockLabChartFileMultiBlock:
                 "Flow": flow * 60,
                 "Paw": np.ones(1000) * 5.0,
                 "Pressure": np.ones(1000) * 15.0,
+                # Pes falls and Pga rises during inspiration
+                "Pes": -5.0 - 10.0 * np.sin(2 * np.pi * t / 4),
+                "Pga": 3.0 + 4.0 * np.sin(2 * np.pi * t / 4),
             }
         )
 
@@ -530,3 +538,110 @@ class TestComputeFromLabchartMultiBlock:
         assert isinstance(result["cycles"], dict)
         assert 1 in result["cycles"]
         assert isinstance(result["cycles"][1], pd.DataFrame)
+
+
+class TestComputeFromLabchartEffort:
+    """Respiratory effort metrics propagation through compute_from_labchart."""
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_no_effort_without_pes_col(self):
+        """Without pes_col the effort view is None and no effort column appears."""
+        result = compute_from_labchart("test.txt", flow_col="Flow", flow_unit="L/min")
+
+        assert result["effort"] is None
+        assert "dPes" not in result["ventilatory"].columns
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_effort_columns_merged_into_ventilatory(self):
+        """Effort columns are merged into the ventilatory table, keys kept unique."""
+        result = compute_from_labchart(
+            "test.txt",
+            flow_col="Flow",
+            flow_unit="L/min",
+            pes_col="Pes",
+            pga_col="Pga",
+        )
+
+        vent = result["ventilatory"]
+        for col in ["dPes", "dPga", "dPdi", "PTPes", "PTPga", "PTPdi", "PTPdi_PTPes"]:
+            assert col in vent.columns
+        # merge must not have produced suffixed duplicates
+        assert not [c for c in vent.columns if c.endswith(("_x", "_y"))]
+        assert list(vent.columns)[:2] == ["block_name", "block"]
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_effort_view_has_leading_block_columns(self):
+        """The standalone effort view carries block_name and block first."""
+        result = compute_from_labchart(
+            "test.txt",
+            flow_col="Flow",
+            flow_unit="L/min",
+            pes_col="Pes",
+            pga_col="Pga",
+        )
+
+        eff = result["effort"]
+        assert eff is not None
+        assert list(eff.columns)[:2] == ["block_name", "block"]
+        assert "TTIdi" in eff.columns
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_effort_values_are_physiological(self):
+        """Pes falls and Pga rises in the mock, so all swings are positive."""
+        result = compute_from_labchart(
+            "test.txt",
+            flow_col="Flow",
+            flow_unit="L/min",
+            pes_col="Pes",
+            pga_col="Pga",
+        )
+
+        eff = result["effort"]
+        assert (eff["dPes"] > 0).all()
+        assert (eff["dPga"] > 0).all()
+        assert (eff["dPdi"] > 0).all()
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_pdi_max_propagates_to_ttidi(self):
+        """TTIdi is NaN without pdi_max and finite once it is supplied."""
+        kwargs = {
+            "flow_col": "Flow",
+            "flow_unit": "L/min",
+            "pes_col": "Pes",
+            "pga_col": "Pga",
+        }
+        without = compute_from_labchart("test.txt", **kwargs)["effort"]
+        with_max = compute_from_labchart("test.txt", pdi_max=100.0, **kwargs)["effort"]
+
+        assert without["TTIdi"].isna().all()
+        assert with_max["TTIdi"].notna().any()
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_effort_csv_written(self, tmp_path):
+        """An effort CSV is written alongside the cycles and metrics files."""
+        compute_from_labchart(
+            "test.txt",
+            flow_col="Flow",
+            flow_unit="L/min",
+            pes_col="Pes",
+            pga_col="Pga",
+            output_dir=tmp_path,
+            output_prefix="test",
+        )
+
+        assert (tmp_path / "test_effort_block1.csv").exists()
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFileMultiBlock)
+    def test_effort_dict_for_multiple_blocks(self):
+        """Multi-block calls return an effort dict keyed by block."""
+        result = compute_from_labchart(
+            "test.txt",
+            block=[1, 2],
+            flow_col="Flow",
+            flow_unit="L/min",
+            pes_col="Pes",
+            pga_col="Pga",
+        )
+
+        assert isinstance(result["effort"], dict)
+        assert set(result["effort"].keys()) == {1, 2}
