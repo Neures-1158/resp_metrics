@@ -9,6 +9,7 @@ This module provides a single high-level function:
 It returns a DataFrame with one row per cycle and the following columns:
   - n_cycle: 1-based cycle index within the block
   - t_inspi, t_expi: absolute times (s) delimiting inspiration (from comments)
+  - Pes_ee: end-expiratory oesophageal pressure (cmH2O), absolute
   - dPes: inspiratory oesophageal pressure swing (cmH2O)
   - dPga: inspiratory gastric pressure swing (cmH2O)
   - dPga_corr: same, referenced to the Pga nadir (cmH2O)
@@ -73,6 +74,14 @@ Notes:
     swings are an order of magnitude larger, so the same offset is
     negligible, and Pdi is derived from Pga and Pes and cannot take an
     independent reference.
+  - Pes_ee is the pre-inspiratory Pes baseline, reported as an absolute value.
+    It is an indirect marker of operating lung volume: ERS 2019 uses it to
+    reveal intrinsic PEEP when hyperinflation is suspected ("What is
+    end-expiratory oesophageal pressure? (may reveal intrinsic PEEP)"). It is
+    a surrogate only - the reference method for end-expiratory lung volume is
+    the inspiratory capacity manoeuvre - so read changes across conditions
+    rather than a single absolute level. Being absolute it also carries any DC
+    offset of the channel, unlike every other column here.
   - PTPes is NOT corrected for chest wall elastic recoil, which would require
     chest wall elastance. It is a practical within-subject index of global
     inspiratory effort, not an absolute measure.
@@ -168,6 +177,7 @@ def effort_from_cycles(
         "n_cycle",
         "t_inspi",
         "t_expi",
+        "Pes_ee",
         "dPes",
         "dPga",
         "dPga_corr",
@@ -280,6 +290,7 @@ def effort_from_cycles(
         if has_pes:
             pes_base = _baseline_before(t, pes, ti, baseline_window, i_insp)
             seg_pes = pes[i0 : i1 + 1]
+            pes_ee = pes_base
             d_pes = pes_base - float(np.nanmin(seg_pes))
             ptp_pes = trapz_safe(pes_base - seg_pes, seg_t)
             # Work of breathing: Pmus x inspired volume, in joules.
@@ -289,6 +300,7 @@ def effort_from_cycles(
             else:
                 wob = float("nan")
         else:
+            pes_ee = float("nan")
             d_pes = float("nan")
             ptp_pes = float("nan")
             wob = float("nan")
@@ -357,6 +369,7 @@ def effort_from_cycles(
                 "n_cycle": int(row["n_cycle"]),
                 "t_inspi": t[i_insp],
                 "t_expi": t[i_expi],
+                "Pes_ee": pes_ee,
                 "dPes": d_pes,
                 "dPga": d_pga,
                 "dPga_corr": d_pga_corr,

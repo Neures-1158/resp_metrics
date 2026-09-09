@@ -84,6 +84,7 @@ per-cycle indices of inspiratory effort. They are merged into the
 | --- | --- | --- |
 | `VT_Ti` | `VT / Ti`, mean inspiratory flow | L·s⁻¹ |
 | `Ti_Ttot` | `Ti / Ttot`, inspiratory duty cycle | — |
+| `Pes_ee` | end-expiratory Pes, absolute (indirect marker of operating lung volume) | cmH2O |
 | `dPes` | `Pes_baseline − min(Pes)` over inspiration | cmH2O |
 | `dPga` | `max(Pga) − Pga_baseline` | cmH2O |
 | `dPga_corr` | same, referenced to the Pga nadir | cmH2O |
@@ -149,6 +150,12 @@ res["effort"].head()
   present. `Pes` and `Pdi` are left uncorrected: their swings are an order of
   magnitude larger so the same offset is negligible, and `Pdi` is derived from
   `Pga` and `Pes` and cannot take an independent reference.
+- `Pes_ee` is reported as an absolute value, so unlike every other effort
+  column it carries any DC offset of the channel. ERS 2019 uses end-expiratory
+  Poes to reveal intrinsic PEEP when hyperinflation is suspected, but it is a
+  surrogate only — the reference method for end-expiratory lung volume is the
+  inspiratory capacity manoeuvre. Read changes across conditions rather than a
+  single absolute level.
 - `TTIdi` needs `Pdi_max` from a maximal manoeuvre; it cannot be derived from
   tidal breathing and stays `NaN` when not supplied. The diaphragm fatigue
   threshold is a `TTIdi` of 0.15–0.18 (ATS/ERS).

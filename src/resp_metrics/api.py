@@ -56,6 +56,7 @@ except Exception as exc:  # pragma: no cover - absence is allowed
 
 # Effort columns extracted for the standalone 'effort' view
 _EFFORT_COLS = [
+    "Pes_ee",
     "dPes",
     "dPga",
     "dPga_corr",
