@@ -1,6 +1,7 @@
 """Tests for respiratory effort indices (Pes / Pga / Pdi)."""
 
 import math
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -446,3 +447,29 @@ class TestEffortPgaCorrected:
         for col in ("dPes", "PTPes", "dPdi", "PTPdi"):
             assert wide[col] == pytest.approx(narrow[col], rel=1e-9)
         assert wide["dPga"] == pytest.approx(narrow["dPga"], rel=1e-9)
+
+    def test_nadir_search_stays_inside_inspiration(self):
+        """pga_nadir_frac > 1 must not let the nadir land in expiration."""
+        t = np.arange(0, 4, 0.01)
+        pga = np.full_like(t, 5.0)
+        pga[(t >= 1.0) & (t <= 2.0)] = 8.0
+        pga[t > 2.0] = 1.0  # Pga collapses in expiration
+        df = pd.DataFrame({"time_block": t, "Pes": np.zeros_like(t), "Pga": pga})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        for frac in (1.0, 1.5, 3.0):
+            row = effort_from_cycles(df, cycles, pga_nadir_frac=frac).iloc[0]
+            # the expiratory collapse to 1.0 must never be picked as reference
+            assert row["dPga_corr"] == pytest.approx(0.0, abs=1e-9)
+            assert np.isfinite(row["PTPga_corr"])
+
+    def test_all_nan_pga_gives_nan_not_crash(self):
+        """An unusable Pga channel degrades to NaN, as everywhere else."""
+        df, cycles = _rect_effort()
+        df = df.assign(Pga=np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            row = effort_from_cycles(df, cycles).iloc[0]
+        assert math.isnan(row["dPga_corr"])
+        assert math.isnan(row["PTPga_corr"])
