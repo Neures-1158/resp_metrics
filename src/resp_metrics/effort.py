@@ -300,13 +300,19 @@ def effort_from_cycles(
             d_pga = float(np.nanmax(seg_pga)) - pga_base
             ptp_pga = trapz_safe(seg_pga - pga_base, seg_t)
             # Corrected variant: reference the swing to the Pga nadir, i.e. the
-            # relaxed abdominal level once expiratory muscles have let go.
-            i_nadir = i0 + int(
-                np.nanargmin(pga[i0 : i0 + max(1, int((i1 - i0) * pga_nadir_frac)) + 1])
-            )
-            seg_corr = pga[i_nadir : i1 + 1]
-            d_pga_corr = float(np.nanmax(seg_corr)) - float(pga[i_nadir])
-            ptp_pga_corr = trapz_safe(seg_corr - pga[i_nadir], t[i_nadir : i1 + 1])
+            # relaxed abdominal level once expiratory muscles have let go. The
+            # search stays inside inspiration whatever pga_nadir_frac is, so the
+            # nadir can never land in expiration and leave an empty segment.
+            i_end = min(i1, i0 + max(1, int((i1 - i0) * pga_nadir_frac)))
+            search = pga[i0 : i_end + 1]
+            if np.all(np.isnan(search)):
+                d_pga_corr = float("nan")
+                ptp_pga_corr = float("nan")
+            else:
+                i_nadir = i0 + int(np.nanargmin(search))
+                seg_corr = pga[i_nadir : i1 + 1]
+                d_pga_corr = float(np.nanmax(seg_corr)) - float(pga[i_nadir])
+                ptp_pga_corr = trapz_safe(seg_corr - pga[i_nadir], t[i_nadir : i1 + 1])
         else:
             d_pga = float("nan")
             ptp_pga = float("nan")
