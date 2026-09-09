@@ -17,6 +17,8 @@ It returns a DataFrame with one row per cycle and the following columns:
   - IE: I:E ratio (dimensionless), Ti/Te when both are finite
   - Ti_Ttot: inspiratory duty cycle, Ti/Ttot (dimensionless)
   - PTP: pressure-time product (cmH2O·s) — positive when pressure falls below baseline
+  - dPmo: inspiratory swing of the pressure channel (cmH2O), baseline − min
+  - Pmo_mean: mean inspiratory pressure (cmH2O), absolute (no baseline removed)
 
 Assumptions:
   - df_block contains at least 'time_block' and the specified flow/volume columns
@@ -40,6 +42,14 @@ Notes:
     airway pressure falls below baseline (spontaneous inspiratory effort).
     If no samples are available in the baseline window, pressure at inspiration
     onset is used.
+  - dPmo and Pmo_mean come from the same `pressure_col`. Under inspiratory
+    threshold loading this channel carries the applied load, which is why they
+    sit with the ventilatory pattern rather than with the effort indices.
+    dPmo is referenced to the pre-inspiratory baseline like PTP, so it is
+    immune to a DC offset on the channel. Pmo_mean is the raw signal average
+    over inspiration, matching the "average inspiratory mouth pressure" (PM)
+    reported by Bird et al. (Chest 2024;166:821-833); being absolute, it does
+    carry any offset, and comparing it with PTP/Ti reveals one.
 """
 
 from __future__ import annotations
@@ -134,6 +144,8 @@ def ventilatory_from_cycles(
         "IE",
         "Ti_Ttot",
         "PTP",
+        "dPmo",
+        "Pmo_mean",
     ]
     if include_block:
         base_columns = ["block"] + base_columns
@@ -295,10 +307,17 @@ def ventilatory_from_cycles(
             p_baseline = _baseline_before(t, pressure, ti, ptp_window, i_insp)
             # PTP = ∫ (P_baseline - P) dt during inspiration.
             # Positive when airway pressure falls below baseline (spontaneous effort).
-            p_drop = p_baseline - pressure[i0 : i1 + 1]
+            seg_p = pressure[i0 : i1 + 1]
+            p_drop = p_baseline - seg_p
             ptp = trapz_safe(p_drop, t[i0 : i1 + 1])
+            # Swing, referenced to baseline like PTP; mean is the raw signal
+            # average, so it also carries any DC level of the channel.
+            d_pmo = p_baseline - float(np.nanmin(seg_p))
+            pmo_mean = float(np.nanmean(seg_p))
         else:
             ptp = float("nan")
+            d_pmo = float("nan")
+            pmo_mean = float("nan")
 
         rows.append(
             {
@@ -317,6 +336,8 @@ def ventilatory_from_cycles(
                 "IE": ie_ratio,
                 "Ti_Ttot": ti_ttot,
                 "PTP": ptp,
+                "dPmo": d_pmo,
+                "Pmo_mean": pmo_mean,
             }
         )
 

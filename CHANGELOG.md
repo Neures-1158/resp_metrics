@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<prefix>_effort_block<N>.csv` when `output_dir` is set.
 - `VT_Ti` (mean inspiratory flow, L/s) and `Ti_Ttot` (inspiratory duty cycle)
   in both `ventilatory_from_cycles()` and `mechanical_from_cycles()`.
+- `dPmo` (baseline-referenced inspiratory swing) and `Pmo_mean` (absolute mean
+  inspiratory pressure) in `ventilatory_from_cycles()`, both from
+  `pressure_col`.
 
 ### Fixed
 

@@ -269,6 +269,8 @@ class TestVentilatoryCycleValidation:
             "IE",
             "Ti_Ttot",
             "PTP",
+            "dPmo",
+            "Pmo_mean",
         ]
 
     def test_next_inspi_before_expi_sets_ttot_nan(self):
@@ -511,3 +513,59 @@ class TestVentilatoryDerivedRatios:
         )
         row = ventilatory_from_cycles(df, cycles, volume_col=None).iloc[0]
         assert math.isnan(row["VT_Ti"])
+
+
+class TestVentilatoryPressureSwingAndMean:
+    """dPmo (baseline-referenced swing) and Pmo_mean (absolute mean)."""
+
+    @staticmethod
+    def _pressure_cycle(offset=0.0):
+        """Pressure at `offset` at rest, dropping to `offset - 8` during 1.0 s."""
+        t = np.arange(0, 4, 0.01)
+        p = np.full_like(t, offset)
+        p[(t >= 1.0) & (t <= 2.0)] = offset - 8.0
+        df = pd.DataFrame({"time_block": t, "Flow": np.zeros_like(t), "Paw": p})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        return df, cycles
+
+    def test_swing_and_mean_values(self):
+        """An 8 cmH2O drop held 1.0 s gives dPmo = 8 and Pmo_mean = -8."""
+        df, cycles = self._pressure_cycle()
+        row = ventilatory_from_cycles(
+            df, cycles, flow_col="Flow", flow_unit="L/s", pressure_col="Paw"
+        ).iloc[0]
+        assert row["dPmo"] == pytest.approx(8.0, rel=1e-2)
+        assert row["Pmo_mean"] == pytest.approx(-8.0, rel=1e-2)
+
+    def test_mean_is_absolute_swing_is_referenced(self):
+        """A DC offset shifts Pmo_mean but leaves dPmo and PTP untouched."""
+        base = ventilatory_from_cycles(
+            *self._pressure_cycle(0.0),
+            flow_col="Flow",
+            flow_unit="L/s",
+            pressure_col="Paw",
+        ).iloc[0]
+        shifted = ventilatory_from_cycles(
+            *self._pressure_cycle(-40.0),
+            flow_col="Flow",
+            flow_unit="L/s",
+            pressure_col="Paw",
+        ).iloc[0]
+        assert shifted["dPmo"] == pytest.approx(base["dPmo"], rel=1e-9)
+        assert shifted["PTP"] == pytest.approx(base["PTP"], rel=1e-9)
+        assert shifted["Pmo_mean"] == pytest.approx(base["Pmo_mean"] - 40.0, rel=1e-6)
+
+    def test_nan_without_pressure_channel(self):
+        """Both columns are NaN when no pressure channel is available."""
+        df, cycles = self._pressure_cycle()
+        row = ventilatory_from_cycles(
+            df.drop(columns=["Paw"]),
+            cycles,
+            flow_col="Flow",
+            flow_unit="L/s",
+            pressure_col="Paw",
+        ).iloc[0]
+        assert math.isnan(row["dPmo"])
+        assert math.isnan(row["Pmo_mean"])
