@@ -141,6 +141,8 @@ class TestComputeFromLabchartSpontaneous:
             "IE",
             "Ti_Ttot",
             "PTP",
+            "dPmo",
+            "Pmo_mean",
         ]
         for col in expected_cols:
             assert col in result["ventilatory"].columns

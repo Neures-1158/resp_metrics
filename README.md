@@ -70,7 +70,7 @@ See [examples/example_notebook.ipynb](examples/example_notebook.ipynb).
 - Spontaneous breathing: inspiration is negative flow.
 - Mechanical ventilation: inspiration is positive flow.
 - Standard outputs: `BF`, `VT`, `VT_Ti`, `VE`, `Ti`, `Te`, `Ttot`, `Ti_Ttot`,
-  `IE`, `PIF`, `PEF`, and `PTP`.
+  `IE`, `PIF`, `PEF`, `PTP`, `dPmo` and `Pmo_mean`.
 - Mechanical ventilation also returns `PEEP`, `Ppeak`, `Pplat`, `dP`, `Cstat`,
   `R`, and `MAP` when signals support them.
 
@@ -127,6 +127,13 @@ res["effort"].head()
 - `Pplat`, `Cstat`, and `R` require a low-flow inspiratory plateau.
 - If `Pplat` is unavailable, `dP = Ppeak - PEEP` is a fallback and
   overestimates true driving pressure.
+- `dPmo` (swing) and `Pmo_mean` (mean) come from `pressure_col`. Under
+  inspiratory threshold loading that channel carries the applied load, which is
+  why they sit with the ventilatory pattern rather than the effort indices.
+  `dPmo` is referenced to the pre-inspiratory baseline and is immune to a DC
+  offset; `Pmo_mean` is absolute, matching the average inspiratory mouth
+  pressure (`PM`) reported by Bird et al., so comparing it with `PTP`/`Ti`
+  reveals an offset on the channel.
 - `WOB` requires esophageal pressure (`pes_col`) and flow; airway pressure is
   not substituted, as it would not represent patient effort.
 - `PTPes` is not corrected for chest wall elastic recoil, which would require
