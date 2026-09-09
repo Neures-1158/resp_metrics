@@ -124,3 +124,50 @@ def convert_flow_unit(flow: np.ndarray, flow_unit: str) -> np.ndarray:
             f"Unsupported flow unit: {flow_unit}. "
             "Use 'L/s', 'L/min', 'mL/s', or 'mL/min'."
         )
+
+
+def _baseline_before(
+    t: np.ndarray,
+    sig: np.ndarray,
+    t_onset: float,
+    window: float,
+    i_onset: int,
+) -> float:
+    """Median signal value over the window preceding inspiration onset.
+
+    Used as the reference ("resting end-expiratory") level for pressure swings
+    and pressure-time products.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Time axis (s), monotonically increasing.
+    sig : np.ndarray
+        Signal sampled on ``t``.
+    t_onset : float
+        Inspiration onset time (s).
+    window : float
+        Window duration (s) before ``t_onset`` used for the median.
+    i_onset : int
+        Index of ``t_onset`` in ``t``, used as a fallback when the window
+        contains no sample.
+
+    Returns
+    -------
+    float
+        Median of ``sig`` over ``[t_onset - window, t_onset)``, or
+        ``sig[i_onset]`` when that window is empty.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> t = np.array([0.0, 0.1, 0.2, 0.3])
+    >>> sig = np.array([1.0, 3.0, 5.0, 7.0])
+    >>> _baseline_before(t, sig, 0.2, 0.2, 2)
+    2.0
+    """
+    t0 = max(t[0], t_onset - window)
+    mask = (t >= t0) & (t < t_onset)
+    if np.any(mask):
+        return float(np.nanmedian(sig[mask]))
+    return float(sig[i_onset])

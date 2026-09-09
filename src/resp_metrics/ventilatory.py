@@ -11,10 +11,11 @@ It returns a DataFrame with one row per cycle and the following columns:
   - Ti, Te, Ttot: inspiratory, expiratory and total cycle durations (s)
   - BF: breathing frequency (breaths/min)
   - VT: tidal volume (L)
+  - VT_Ti: mean inspiratory flow, VT/Ti (L/s)
   - VE: minute ventilation (L/min)
   - PIF, PEF: peak inspiratory/expiratory flow (magnitudes, L/s)
   - IE: I:E ratio (dimensionless), Ti/Te when both are finite
-  - WOB: work of breathing (J) — requires esophageal pressure (Pes)
+  - Ti_Ttot: inspiratory duty cycle, Ti/Ttot (dimensionless)
   - PTP: pressure-time product (cmH2O·s) — positive when pressure falls below baseline
 
 Assumptions:
@@ -32,13 +33,8 @@ Notes:
     emitted and the result falls back to flow integration.
     Pass volume_col=None to always use flow integration.
   - PEF is computed between t_expi and t_next_inspi when available; otherwise NaN.
-  - WOB requires esophageal pressure (pes_col). Pes must follow the standard
-    subatmospheric convention: negative at rest (e.g. -5 cmH2O), more negative
-    during inspiratory effort (e.g. -15 cmH2O). The formula is:
-      WOB = ∫ (Pes_baseline − Pes) × (−Flow) dt
-    where Pes_baseline is the median Pes in the pre-inspiratory window.
-    WOB is positive when the patient generates inspiratory effort.
-    If pes_col is not provided, WOB will be NaN.
+  - Work of breathing and the Pes/Pga/Pdi effort indices live in
+    resp_metrics.effort (see effort_from_cycles).
   - PTP = ∫ (P_baseline − P) dt during inspiration, where P_baseline is the
     median pressure in a window before inspiration onset. PTP is positive when
     airway pressure falls below baseline (spontaneous inspiratory effort).
@@ -53,7 +49,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .utils import convert_flow_unit, nearest_idx, trapz_safe
+from .utils import _baseline_before, convert_flow_unit, nearest_idx, trapz_safe
 
 __all__ = ["ventilatory_from_cycles"]
 
@@ -64,7 +60,6 @@ def ventilatory_from_cycles(
     flow_col: str = "Flow",
     volume_col: str | None = "VolumeResp",
     pressure_col: str | None = "Paw",
-    pes_col: str | None = None,
     flow_unit: str = "L/min",
     ptp_window: float = 0.20,
     block: int | str | None = None,
@@ -89,10 +84,6 @@ def ventilatory_from_cycles(
         by integrating flow over inspiration.
     pressure_col : str or None, default 'Paw'
         Column name for airway pressure signal (cmH2O). Used for PTP calculation.
-    pes_col : str or None, default None
-        Column name for esophageal pressure signal (cmH2O). Required for WOB
-        calculation. If not provided, WOB will be NaN. Using airway pressure
-        (Paw) for WOB would not represent patient effort correctly.
     flow_unit : str, default 'L/min'
         Unit of the flow signal. Accepted values include 'L/min', 'L/s',
         'mL/min', 'mL/s', and supported spelling/case variants handled by
@@ -136,11 +127,12 @@ def ventilatory_from_cycles(
         "Te",
         "BF",
         "VT",
+        "VT_Ti",
         "VE",
         "PIF",
         "PEF",
         "IE",
-        "WOB",
+        "Ti_Ttot",
         "PTP",
     ]
     if include_block:
@@ -162,11 +154,9 @@ def ventilatory_from_cycles(
     has_flow = flow_col in df_block.columns
     has_vol = (volume_col is not None) and (volume_col in df_block.columns)
     has_pressure = (pressure_col is not None) and (pressure_col in df_block.columns)
-    has_pes = (pes_col is not None) and (pes_col in df_block.columns)
 
     flow = df_block[flow_col].to_numpy() if has_flow else None
     pressure = df_block[pressure_col].to_numpy() if has_pressure else None
-    pes = df_block[pes_col].to_numpy() if has_pes else None
     if flow is not None:
         # Convert flow to L/s if needed (spontaneous convention: inspiration negative)
         flow = convert_flow_unit(flow, flow_unit)
@@ -258,6 +248,13 @@ def ventilatory_from_cycles(
 
         ve = bf * vt if (np.isfinite(bf) and np.isfinite(vt)) else float("nan")
 
+        # Mean inspiratory flow (L/s)
+        vt_ti = (
+            (vt / ti_duration)
+            if (np.isfinite(vt) and np.isfinite(ti_duration) and ti_duration > 0)
+            else float("nan")
+        )
+
         # Peaks (magnitudes): inspiration negative -> use abs(min) for PIF; expiration positive -> max
         if has_flow:
             i0, i1 = sorted((i_insp, i_expi))
@@ -283,36 +280,19 @@ def ventilatory_from_cycles(
             else float("nan")
         )
 
-        # WOB calculation (requires esophageal pressure for physiological accuracy)
-        # Convention: Pes in cmH2O, standard subatmospheric values (e.g. -5 to -20 at rest).
-        # Pmus = Pes_baseline - Pes > 0 when the patient generates inspiratory effort.
-        # WOB = ∫ Pmus × (-Flow) dt; -Flow > 0 during inspiration (negative-flow convention).
-        # Units: kPa × L/s × s = kPa·L = J  (1 kPa·L = 1 J).
-        if has_pes and has_flow:
-            i0, i1 = sorted((i_insp, i_expi))
-            # Pes baseline: median in the pre-inspiratory window (same window as PTP)
-            t0_pes = max(t[0], ti - ptp_window)
-            m_pes = (t >= t0_pes) & (t < ti)
-            if np.any(m_pes):
-                pes_baseline = float(np.nanmedian(pes[m_pes]))
-            else:
-                pes_baseline = float(pes[i_insp])
-            pmus_kpa = (pes_baseline - pes[i0 : i1 + 1]) * 0.0980665
-            wob = trapz_safe(pmus_kpa * (-flow[i0 : i1 + 1]), t[i0 : i1 + 1])
-        else:
-            wob = float("nan")
+        # Inspiratory duty cycle
+        ti_ttot = (
+            (ti_duration / ttot)
+            if (np.isfinite(ti_duration) and np.isfinite(ttot) and ttot > 0)
+            else float("nan")
+        )
 
         # PTP calculation (cmH2O·s) relative to baseline pressure
         if has_pressure:
             i0, i1 = sorted((i_insp, i_expi))
-            # Compute baseline as median pressure in window before inspiration
-            t0_baseline = max(t[0], ti - ptp_window)
-            m_baseline = (t >= t0_baseline) & (t < ti)
-            if np.any(m_baseline):
-                p_baseline = float(np.nanmedian(pressure[m_baseline]))
-            else:
-                # Fall back to pressure at inspiration onset to avoid arbitrary baseline
-                p_baseline = float(pressure[i_insp])
+            # Baseline: median pressure in the window before inspiration, falling
+            # back to the pressure at onset to avoid an arbitrary baseline
+            p_baseline = _baseline_before(t, pressure, ti, ptp_window, i_insp)
             # PTP = ∫ (P_baseline - P) dt during inspiration.
             # Positive when airway pressure falls below baseline (spontaneous effort).
             p_drop = p_baseline - pressure[i0 : i1 + 1]
@@ -330,11 +310,12 @@ def ventilatory_from_cycles(
                 "Te": te_duration,
                 "BF": bf,
                 "VT": vt,
+                "VT_Ti": vt_ti,
                 "VE": ve,
                 "PIF": pif,
                 "PEF": pef,
                 "IE": ie_ratio,
-                "WOB": wob,
+                "Ti_Ttot": ti_ttot,
                 "PTP": ptp,
             }
         )

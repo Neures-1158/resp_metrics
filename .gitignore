@@ -69,3 +69,5 @@ cover/
 # Local data 
 data/
 !examples/data/
+# Duplicate of examples/output/ produced by running the notebook from the repo root
+/output/
