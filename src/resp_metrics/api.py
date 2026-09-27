@@ -68,9 +68,7 @@ _EFFORT_COLS = [
     "PTPdi",
     "PTPdi_PTPes",
     "TTIdi",
-    "dPes_exp",
     "dPga_exp",
-    "PTPes_exp",
     "PTPga_exp",
     "TTIabd",
 ]

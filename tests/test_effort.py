@@ -25,9 +25,7 @@ EFFORT_COLUMNS = [
     "PTPdi",
     "PTPdi_PTPes",
     "TTIdi",
-    "dPes_exp",
     "dPga_exp",
-    "PTPes_exp",
     "PTPga_exp",
     "TTIabd",
 ]
@@ -566,14 +564,6 @@ class TestEffortExpiratory:
         te = 4.0 - 2.0
         assert row["PTPga_exp"] / te < row["dPga_exp"]
 
-    def test_pes_shares_the_pga_reference_instant(self):
-        """Pes is referenced to the same instant, so a flat Pes gives a null swing."""
-        df, cycles = self._expiratory_cycle()
-        row = effort_from_cycles(df, cycles).iloc[0]
-        # Pes returns to 0 throughout expiration in this fixture
-        assert row["dPes_exp"] == pytest.approx(0.0, abs=1e-6)
-        assert row["PTPes_exp"] == pytest.approx(0.0, abs=1e-6)
-
     def test_ttiabd_matches_formula(self):
         """TTIabd = PTPga_exp / (Pga_max x Ttot)."""
         df, cycles = self._expiratory_cycle()
@@ -598,7 +588,7 @@ class TestEffortExpiratory:
         df, cycles = self._expiratory_cycle()
         cycles["t_next_inspi"] = np.nan
         row = effort_from_cycles(df, cycles, pga_max=100.0).iloc[0]
-        for col in ("dPes_exp", "dPga_exp", "PTPes_exp", "PTPga_exp", "TTIabd"):
+        for col in ("dPga_exp", "PTPga_exp", "TTIabd"):
             assert math.isnan(row[col])
 
     def test_all_nan_pga_gives_nan_not_crash(self):
@@ -615,7 +605,7 @@ class TestEffortExpiratory:
         """No Pga channel means no expiratory reference, hence no expiratory metrics."""
         df, cycles = self._expiratory_cycle()
         row = effort_from_cycles(df.drop(columns=["Pga"]), cycles, pga_col=None).iloc[0]
-        for col in ("dPes_exp", "dPga_exp", "PTPes_exp", "PTPga_exp"):
+        for col in ("dPga_exp", "PTPga_exp"):
             assert math.isnan(row[col])
 
     def test_inspiratory_columns_untouched(self):

@@ -663,7 +663,7 @@ class TestComputeFromLabchartExpiratoryEffort:
             pga_col="Pga",
         )
 
-        cols = ["dPes_exp", "dPga_exp", "PTPes_exp", "PTPga_exp", "TTIabd"]
+        cols = ["dPga_exp", "PTPga_exp", "TTIabd"]
         for col in cols:
             assert col in result["ventilatory"].columns
             assert col in result["effort"].columns

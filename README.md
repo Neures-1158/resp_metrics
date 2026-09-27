@@ -94,9 +94,7 @@ into the `ventilatory` table and also returned as a standalone `effort` table.
 | `PTPdi` | `∫ (Pdi − Pdi_baseline) dt` | cmH2O·s·breath⁻¹ |
 | `PTPdi_PTPes` | `PTPdi / PTPes`, diaphragmatic share of the effort | — |
 | `TTIdi` | `(mean inspiratory Pdi / Pdi_max) × (Ti / Ttot)` | — |
-| `dPes_exp` | `max(Pes) − Pes[nadir]`, from the nadir to `t_next_inspi` | cmH2O |
 | `dPga_exp` | `max(Pga) − Pga[nadir]`, from the nadir to `t_next_inspi` | cmH2O |
-| `PTPes_exp` | `∫ (Pes − Pes[nadir]) dt`, from the nadir to `t_next_inspi` | cmH2O·s·breath⁻¹ |
 | `PTPga_exp` | `∫ (Pga − Pga[nadir]) dt`, from the nadir to `t_next_inspi` | cmH2O·s·breath⁻¹ |
 | `TTIabd` | `(mean expiratory Pga / Pga_max) × (Te / Ttot)` | — |
 
@@ -107,11 +105,11 @@ expiratory:
   `PTPdi`. Computed over `[t_inspi, t_expi]` and referenced to the median of
   the `baseline_window` preceding inspiration onset (0.2 s by default), i.e.
   the resting end-expiratory level. `Pes_ee` is that baseline itself.
-- **Nadir-referenced** — `dPga_corr`, `PTPga_corr` and every `_exp` column.
+- **Nadir-referenced** — `dPga_corr`, `PTPga_corr`, `dPga_exp`, `PTPga_exp`.
   Computed *from the Pga nadir* to the end of the phase, and referenced to
-  each channel's value at that instant. The nadir is searched over the first
-  `pga_nadir_frac` of the phase: `[t_inspi, t_expi]` for the inspiratory
-  pair, `[t_expi, t_next_inspi]` for the expiratory columns.
+  Pga at that instant. The nadir is searched over the first `pga_nadir_frac`
+  of the phase: `[t_inspi, t_expi]` for the inspiratory pair,
+  `[t_expi, t_next_inspi]` for the expiratory pair.
 
 `TTIdi` and `TTIabd` additionally divide by `Ttot`, so they span the whole
 cycle. `Pdi` is read from `pdi_col` when given, otherwise derived as
@@ -176,8 +174,9 @@ res["effort"].head()
 - `TTIdi` needs `Pdi_max` from a maximal manoeuvre; it cannot be derived from
   tidal breathing and stays `NaN` when not supplied. The diaphragm fatigue
   threshold is a `TTIdi` of 0.15–0.18 (ATS/ERS).
-- The expiratory columns (`_exp`) reference both channels to a single instant,
-  the Pga nadir over the first `pga_nadir_frac` of expiration — the relaxed
+- The expiratory columns (`_exp`) are gastric: ERS 2019 designates Pga as the
+  signal of the main expiratory muscles, the abdominals. They reference Pga to
+  the nadir over the first `pga_nadir_frac` of expiration — the relaxed
   abdominal level — and integrate from that instant, not from `t_expi`. Unlike `dPga`, they have no uncorrected counterpart because
   neither boundary of the expiratory window is a resting instant: at `t_expi`
   the inspiratory effort is still ending (Pes is far below its resting level),
@@ -201,7 +200,7 @@ pytest
 ## Maintainer
 
 Maintained under [NEURES](https://github.com/Neures-1158). Lead: Damien
-Bachasson, PhD ([GitHub](https://github.com/dambach) |
+Bachasson, PhD, HDR ([GitHub](https://github.com/dambach) |
 [ORCID](https://orcid.org/0000-0001-6335-9916) |
 [Lab](https://sante.sorbonne-universite.fr/structures-de-recherche/neurophysiologie-respiratoire-experimentale-et-clinique)).
 Issues and PRs welcome.

@@ -21,8 +21,8 @@ It returns a DataFrame with one row per cycle and the following columns:
   - PTPdi: transdiaphragmatic pressure-time product (cmH2O·s per breath)
   - PTPdi_PTPes: ratio of the two pressure-time products (dimensionless)
   - TTIdi: tension-time index of the diaphragm (dimensionless)
-  - dPes_exp, dPga_exp: expiratory pressure swings (cmH2O)
-  - PTPes_exp, PTPga_exp: expiratory pressure-time products (cmH2O·s per breath)
+  - dPga_exp: expiratory gastric pressure swing (cmH2O)
+  - PTPga_exp: expiratory gastric pressure-time product (cmH2O·s per breath)
   - TTIabd: tension-time index of the abdominal muscles (dimensionless)
 
 Definitions follow the reference statements on respiratory muscle testing:
@@ -85,20 +85,21 @@ Notes:
     the inspiratory capacity manoeuvre - so read changes across conditions
     rather than a single absolute level. Being absolute it also carries any DC
     offset of the channel, unlike every other column here.
-  - The expiratory columns cover [t_expi, t_next_inspi]. Both channels are
-    referenced to one instant, the Pga nadir over the first `pga_nadir_frac`
-    of expiration: the relaxed abdominal level, reached once the inspiratory
-    effort has ceased and before the abdominals contract. Neither boundary of
-    the window works as a reference, which is why there is no uncorrected
-    counterpart here as there is for dPga: t_expi still carries the ending
-    inspiratory effort (Pes is far below its resting level there), and
-    end-expiration is the peak of abdominal contraction, which drives the
-    pressure-time products negative on most cycles. ATS/ERS 2002 sanctions the
-    measurement ("PTP of the expiratory muscles can also be measured") and
-    points at this signal ("Examination of the Pga signal during expiration.
-    This allows detection of phasic expiratory muscle activity"); ERS 2019
-    notes that "measurement of Pga is used to evaluate the main expiratory
-    muscles, i.e. the abdominal muscles".
+  - The expiratory columns are gastric: ERS 2019 states that "measurement of
+    Pga is used to evaluate the main expiratory muscles, i.e. the abdominal
+    muscles".
+  - dPga_exp and PTPga_exp run from the Pga nadir, searched over the first
+    `pga_nadir_frac` of [t_expi, t_next_inspi], to t_next_inspi. That nadir is
+    the relaxed abdominal level, reached once the inspiratory effort has
+    ceased and before the abdominals contract. Neither boundary of the window
+    works as a reference, which is why there is no uncorrected counterpart
+    here as there is for dPga: t_expi still carries the ending inspiratory
+    effort, and end-expiration is the peak of abdominal contraction, which
+    drives the pressure-time product negative on most cycles. ATS/ERS 2002
+    sanctions the measurement ("PTP of the expiratory muscles can also be
+    measured") and points at this signal ("Examination of the Pga signal
+    during expiration. This allows detection of phasic expiratory muscle
+    activity").
   - TTIabd = (mean expiratory Pga / Pga_max) x (Te / Ttot), equivalent to
     PTPga_exp / (Pga_max x Ttot). Like Pdi_max, Pga_max comes from a maximal
     manoeuvre and must be supplied via `pga_max`, otherwise TTIabd is NaN.
@@ -213,9 +214,7 @@ def effort_from_cycles(
         "PTPdi",
         "PTPdi_PTPes",
         "TTIdi",
-        "dPes_exp",
         "dPga_exp",
-        "PTPes_exp",
         "PTPga_exp",
         "TTIabd",
     ]
@@ -403,9 +402,7 @@ def effort_from_cycles(
         # Neither boundary of the window can serve as reference: t_expi still
         # carries the ending inspiratory effort, and end-expiration is the peak
         # of abdominal contraction.
-        d_pes_exp = float("nan")
         d_pga_exp = float("nan")
-        ptp_pes_exp = float("nan")
         ptp_pga_exp = float("nan")
         if i_next is not None and pga is not None:
             i_end = min(
@@ -418,10 +415,6 @@ def effort_from_cycles(
                 seg_pga_exp = pga[i_rel : i_next + 1]
                 d_pga_exp = float(np.nanmax(seg_pga_exp)) - float(pga[i_rel])
                 ptp_pga_exp = trapz_safe(seg_pga_exp - pga[i_rel], exp_t)
-                if has_pes:
-                    seg_pes_exp = pes[i_rel : i_next + 1]
-                    d_pes_exp = float(np.nanmax(seg_pes_exp)) - float(pes[i_rel])
-                    ptp_pes_exp = trapz_safe(seg_pes_exp - pes[i_rel], exp_t)
 
         # --- Tension-time index of the abdominal (expiratory) muscles ---
         # TTIabd = (mean expiratory Pga / Pga_max) x (Te / Ttot)
@@ -455,9 +448,7 @@ def effort_from_cycles(
                 "PTPdi": ptp_pdi,
                 "PTPdi_PTPes": ptp_ratio,
                 "TTIdi": tti_di,
-                "dPes_exp": d_pes_exp,
                 "dPga_exp": d_pga_exp,
-                "PTPes_exp": ptp_pes_exp,
                 "PTPga_exp": ptp_pga_exp,
                 "TTIabd": tti_abd,
             }
