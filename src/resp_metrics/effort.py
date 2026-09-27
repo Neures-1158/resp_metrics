@@ -21,11 +21,15 @@ It returns a DataFrame with one row per cycle and the following columns:
   - PTPdi: transdiaphragmatic pressure-time product (cmH2O·s per breath)
   - PTPdi_PTPes: ratio of the two pressure-time products (dimensionless)
   - TTIdi: tension-time index of the diaphragm (dimensionless)
+  - dPga_exp: expiratory gastric pressure swing (cmH2O)
+  - PTPga_exp: expiratory gastric pressure-time product (cmH2O·s per breath)
+  - TTIabd: tension-time index of the abdominal muscles (dimensionless)
+  - pes_artifact: quality flag on the oesophageal channel (boolean)
 
 Definitions follow the reference statements on respiratory muscle testing:
 
   - ATS/ERS Statement on Respiratory Muscle Testing.
-    Am J Respir Crit Care Med 2002;165:518-624.
+    Am J Respir Crit Care Med 2002;166:518-624.
     PTP is the integration of respiratory pressure over time. The tension-time
     index of the diaphragm is TTdi = (Pdi/Pdi,max) x (TI/Ttot), "where Pdi is
     the mean transdiaphragmatic pressure generated per breath". The diaphragm
@@ -82,6 +86,32 @@ Notes:
     the inspiratory capacity manoeuvre - so read changes across conditions
     rather than a single absolute level. Being absolute it also carries any DC
     offset of the channel, unlike every other column here.
+  - The expiratory columns are gastric: ERS 2019 states that "measurement of
+    Pga is used to evaluate the main expiratory muscles, i.e. the abdominal
+    muscles".
+  - dPga_exp and PTPga_exp run from the Pga nadir, searched over the first
+    `pga_nadir_frac` of [t_expi, t_next_inspi], to t_next_inspi. That nadir is
+    the relaxed abdominal level, reached once the inspiratory effort has
+    ceased and before the abdominals contract. Neither boundary of the window
+    works as a reference, which is why there is no uncorrected counterpart
+    here as there is for dPga: t_expi still carries the ending inspiratory
+    effort, and end-expiration is the peak of abdominal contraction, which
+    drives the pressure-time product negative on most cycles. ATS/ERS 2002
+    sanctions the measurement ("PTP of the expiratory muscles can also be
+    measured") and points at this signal ("Examination of the Pga signal
+    during expiration. This allows detection of phasic expiratory muscle
+    activity").
+  - TTIabd = (mean expiratory Pga / Pga_max) x (Te / Ttot), equivalent to
+    PTPga_exp / (Pga_max x Ttot). Like Pdi_max, Pga_max comes from a maximal
+    manoeuvre and must be supplied via `pga_max`, otherwise TTIabd is NaN.
+  - pes_artifact marks cycles whose end-expiratory Pdi falls below
+    `pdi_ee_min`. A relaxed subject cannot have a negative Pdi at rest, since
+    Pga exceeds Pes, so such a value means the Pes trace is corrupted at that
+    instant; oesophageal peristalsis during a swallow is the usual cause. On
+    a flagged cycle every Pes- and Pdi-derived column is unreliable, while
+    the gastric columns stay valid. The flag is missing, not False, when Pdi
+    is unavailable and the check cannot run. Nothing is masked or dropped:
+    the values are reported as computed and the flag is advisory.
   - PTPes is NOT corrected for chest wall elastic recoil, which would require
     chest wall elastance. It is a practical within-subject index of global
     inspiratory effort, not an absolute measure.
@@ -117,6 +147,8 @@ def effort_from_cycles(
     baseline_window: float = 0.20,
     pga_nadir_frac: float = 1.0 / 3.0,
     pdi_max: float | None = None,
+    pga_max: float | None = None,
+    pdi_ee_min: float = -5.0,
     block: int | str | None = None,
     block_name: str | None = None,
 ) -> pd.DataFrame:
@@ -154,6 +186,12 @@ def effort_from_cycles(
     pdi_max : float or None, default None
         Maximal transdiaphragmatic pressure (cmH2O) from a maximal manoeuvre,
         used to normalise TTIdi. If None or non-positive, TTIdi is NaN.
+    pga_max : float or None, default None
+        Maximal gastric pressure (cmH2O) from a maximal expiratory manoeuvre,
+        used to normalise TTIabd. If None or non-positive, TTIabd is NaN.
+    pdi_ee_min : float, default -5.0
+        Lowest plausible end-expiratory Pdi (cmH2O). Below it, ``pes_artifact``
+        is set. Pdi unavailable leaves the flag missing rather than False.
     block : int or str or None, default None
         Optional block identifier to prepend as a ``block`` column.
     block_name : str or None, default None
@@ -189,6 +227,10 @@ def effort_from_cycles(
         "PTPdi",
         "PTPdi_PTPes",
         "TTIdi",
+        "dPga_exp",
+        "PTPga_exp",
+        "TTIabd",
+        "pes_artifact",
     ]
     include_block = block is not None or (
         cycles_df is not None and "block" in cycles_df.columns
@@ -280,8 +322,11 @@ def effort_from_cycles(
         # already reports Ti, Ttot and Ti/Ttot.
         if pd.notna(t_next):
             i_next = nearest_idx(t, float(t_next))
-            ttot = float(t[i_next] - t[i_insp]) if i_next > i_expi else float("nan")
+            if i_next <= i_expi:
+                i_next = None
+            ttot = float(t[i_next] - t[i_insp]) if i_next is not None else float("nan")
         else:
+            i_next = None
             ttot = float("nan")
 
         seg_t = t[i0 : i1 + 1]
@@ -338,6 +383,7 @@ def effort_from_cycles(
             d_pdi = float(np.nanmax(seg_pdi)) - pdi_base
             ptp_pdi = trapz_safe(seg_pdi - pdi_base, seg_t)
         else:
+            pdi_base = float("nan")
             d_pdi = float("nan")
             ptp_pdi = float("nan")
 
@@ -364,6 +410,53 @@ def effort_from_cycles(
             else float("nan")
         )
 
+        # --- Expiratory effort, over [t_expi, t_next_inspi] ---
+        # Both channels are referenced to the same instant: the Pga nadir early
+        # in expiration, i.e. the relaxed abdominal level reached once the
+        # inspiratory effort has ceased and before the abdominals contract.
+        # Neither boundary of the window can serve as reference: t_expi still
+        # carries the ending inspiratory effort, and end-expiration is the peak
+        # of abdominal contraction.
+        d_pga_exp = float("nan")
+        ptp_pga_exp = float("nan")
+        if i_next is not None and pga is not None:
+            i_end = min(
+                i_next, i_expi + max(1, int((i_next - i_expi) * pga_nadir_frac))
+            )
+            search = pga[i_expi : i_end + 1]
+            if not np.all(np.isnan(search)):
+                i_rel = i_expi + int(np.nanargmin(search))
+                exp_t = t[i_rel : i_next + 1]
+                seg_pga_exp = pga[i_rel : i_next + 1]
+                d_pga_exp = float(np.nanmax(seg_pga_exp)) - float(pga[i_rel])
+                ptp_pga_exp = trapz_safe(seg_pga_exp - pga[i_rel], exp_t)
+
+        # --- Tension-time index of the abdominal (expiratory) muscles ---
+        # TTIabd = (mean expiratory Pga / Pga_max) x (Te / Ttot)
+        #        = PTPga_exp / (Pga_max x Ttot), by analogy with TTIdi.
+        tti_abd = (
+            (ptp_pga_exp / (pga_max * ttot))
+            if (
+                pga_max is not None
+                and pga_max > 0
+                and np.isfinite(ptp_pga_exp)
+                and np.isfinite(ttot)
+                and ttot > 0
+            )
+            else float("nan")
+        )
+
+        # --- Quality flag on the oesophageal channel ---
+        # End-expiratory Pdi cannot be negative in a relaxed subject: Pga
+        # exceeds Pes at rest. A negative value means the Pes trace is
+        # corrupted at that instant, oesophageal peristalsis during a swallow
+        # being the usual cause, and every Pes- and Pdi-derived column of the
+        # cycle is then unreliable. The gastric columns are not affected.
+        if np.isfinite(pdi_base):
+            pes_artifact = bool(pdi_base < pdi_ee_min)
+        else:
+            pes_artifact = pd.NA
+
         rows.append(
             {
                 "n_cycle": int(row["n_cycle"]),
@@ -381,6 +474,10 @@ def effort_from_cycles(
                 "PTPdi": ptp_pdi,
                 "PTPdi_PTPes": ptp_ratio,
                 "TTIdi": tti_di,
+                "dPga_exp": d_pga_exp,
+                "PTPga_exp": ptp_pga_exp,
+                "TTIabd": tti_abd,
+                "pes_artifact": pes_artifact,
             }
         )
 
@@ -388,6 +485,7 @@ def effort_from_cycles(
         return pd.DataFrame(columns=all_columns)
 
     out = pd.DataFrame(rows)
+    out["pes_artifact"] = out["pes_artifact"].astype("boolean")
     if block_value is not None:
         out.insert(0, "block", block_value)
     if block_name_value is not None:

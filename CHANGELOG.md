@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dPmo` (baseline-referenced inspiratory swing) and `Pmo_mean` (absolute mean
   inspiratory pressure) in `ventilatory_from_cycles()`, both from
   `pressure_col`.
+- Expiratory effort in `effort_from_cycles()`: `dPga_exp`, `PTPga_exp` and
+  `TTIabd`. Pga is referenced to its nadir early in expiration, the relaxed
+  abdominal level, and integrated from that instant to `t_next_inspi`;
+  neither boundary of the window is a resting instant. `TTIabd` needs the new
+  `pga_max` argument, also exposed on `compute_from_labchart()`.
+- `pes_artifact`, a per-cycle quality flag on the oesophageal channel, raised
+  when end-expiratory `Pdi` falls below the new `pdi_ee_min` threshold. It is
+  advisory: nothing is masked or dropped.
 - `Pes_ee`, the end-expiratory oesophageal pressure, in `effort_from_cycles()`.
   Reported as an absolute value; an indirect marker of operating lung volume.
 

@@ -76,32 +76,47 @@ See [examples/example_notebook.ipynb](examples/example_notebook.ipynb).
 
 ### Respiratory effort (Pes / Pga / Pdi)
 
-Pass `pes_col` (and optionally `pga_col`, `pdi_col`, `pdi_max`) to add
-per-cycle indices of inspiratory effort. They are merged into the
-`ventilatory` table and also returned as a standalone `effort` table.
+Pass `pes_col` (and optionally `pga_col`, `pdi_col`, `pdi_max`, `pga_max`) to
+add per-cycle indices of inspiratory and expiratory effort. They are merged
+into the `ventilatory` table and also returned as a standalone `effort` table.
 
 | Metric | Definition | Unit |
 | --- | --- | --- |
-| `VT_Ti` | `VT / Ti`, mean inspiratory flow | L·s⁻¹ |
-| `Ti_Ttot` | `Ti / Ttot`, inspiratory duty cycle | — |
 | `Pes_ee` | end-expiratory Pes, absolute (indirect marker of operating lung volume) | cmH2O |
-| `dPes` | `Pes_baseline − min(Pes)` over inspiration | cmH2O |
+| `dPes` | `Pes_baseline − min(Pes)` | cmH2O |
 | `dPga` | `max(Pga) − Pga_baseline` | cmH2O |
-| `dPga_corr` | same, referenced to the Pga nadir | cmH2O |
+| `dPga_corr` | `max(Pga) − Pga[nadir]`, from the nadir to `t_expi` | cmH2O |
 | `dPdi` | `max(Pdi) − Pdi_baseline` | cmH2O |
 | `WOB` | `∫ (Pes_baseline − Pes) × (−Flow) dt`, work of breathing | J |
 | `PTPes` | `∫ (Pes_baseline − Pes) dt` | cmH2O·s·breath⁻¹ |
 | `PTPga` | `∫ (Pga − Pga_baseline) dt` | cmH2O·s·breath⁻¹ |
-| `PTPga_corr` | same, integrated from the Pga nadir | cmH2O·s·breath⁻¹ |
+| `PTPga_corr` | `∫ (Pga − Pga[nadir]) dt`, from the nadir to `t_expi` | cmH2O·s·breath⁻¹ |
 | `PTPdi` | `∫ (Pdi − Pdi_baseline) dt` | cmH2O·s·breath⁻¹ |
 | `PTPdi_PTPes` | `PTPdi / PTPes`, diaphragmatic share of the effort | — |
 | `TTIdi` | `(mean inspiratory Pdi / Pdi_max) × (Ti / Ttot)` | — |
+| `dPga_exp` | `max(Pga) − Pga[nadir]`, from the nadir to `t_next_inspi` | cmH2O |
+| `PTPga_exp` | `∫ (Pga − Pga[nadir]) dt`, from the nadir to `t_next_inspi` | cmH2O·s·breath⁻¹ |
+| `TTIabd` | `(mean expiratory Pga / Pga_max) × (Te / Ttot)` | — |
+| `pes_artifact` | quality flag: end-expiratory Pdi below `pdi_ee_min` | boolean |
 
-The baseline of each channel is the median over the 0.2 s preceding
-inspiration onset, i.e. the resting end-expiratory level. `Pdi` is read from
-`pdi_col` when given, otherwise derived as `Pga − Pes`. Definitions follow the
+Two reference conventions coexist, and the split is not inspiratory versus
+expiratory:
+
+- **Baseline-referenced** — `dPes`, `dPga`, `dPdi`, `WOB`, `PTPes`, `PTPga`,
+  `PTPdi`. Computed over `[t_inspi, t_expi]` and referenced to the median of
+  the `baseline_window` preceding inspiration onset (0.2 s by default), i.e.
+  the resting end-expiratory level. `Pes_ee` is that baseline itself.
+- **Nadir-referenced** — `dPga_corr`, `PTPga_corr`, `dPga_exp`, `PTPga_exp`.
+  Computed *from the Pga nadir* to the end of the phase, and referenced to
+  Pga at that instant. The nadir is searched over the first `pga_nadir_frac`
+  of the phase: `[t_inspi, t_expi]` for the inspiratory pair,
+  `[t_expi, t_next_inspi]` for the expiratory pair.
+
+`TTIdi` and `TTIabd` additionally divide by `Ttot`, so they span the whole
+cycle. `Pdi` is read from `pdi_col` when given, otherwise derived as
+`Pga − Pes`. Definitions follow the
 [ATS/ERS Statement on Respiratory Muscle Testing](https://www.atsjournals.org/doi/10.1164/rccm.166.4.518)
-(*Am J Respir Crit Care Med* 2002;165:518-624) and the
+(*Am J Respir Crit Care Med* 2002;166:518-624) and the
 [ERS statement on respiratory muscle testing at rest and during exercise](https://publications.ersnet.org/content/erj/53/6/1801214)
 (Laveneziana et al., *Eur Respir J* 2019;53:1801214).
 
@@ -118,7 +133,8 @@ res = compute_from_labchart(
     pes_col="Pes",
     pga_col="Pga",
     pdi_col="Pdi",
-    pdi_max=97.0,  # cmH2O, measured during a maximal manoeuvre
+    pdi_max=97.0,  # cmH2O, measured during a maximal inspiratory manoeuvre
+    pga_max=110.0,  # cmH2O, measured during a maximal expiratory manoeuvre illustrative value only — see Limitations
 )
 res["effort"].head()
 ```
@@ -145,8 +161,8 @@ res["effort"].head()
   at the start of inspiration, so the end-expiratory baseline sits above the
   relaxed level and `dPga` / `PTPga` are underestimated — an artifact ATS/ERS
   2002 explicitly flags. `dPga_corr` and `PTPga_corr` reference the Pga nadir
-  instead (search window `pga_nadir_frac`, default the first third of
-  inspiration) and match the uncorrected values when no such recruitment is
+  instead (search window `pga_nadir_frac`, default the first third of the
+  phase) and match the uncorrected values when no such recruitment is
   present. `Pes` and `Pdi` are left uncorrected: their swings are an order of
   magnitude larger so the same offset is negligible, and `Pdi` is derived from
   `Pga` and `Pes` and cannot take an independent reference.
@@ -159,6 +175,28 @@ res["effort"].head()
 - `TTIdi` needs `Pdi_max` from a maximal manoeuvre; it cannot be derived from
   tidal breathing and stays `NaN` when not supplied. The diaphragm fatigue
   threshold is a `TTIdi` of 0.15–0.18 (ATS/ERS).
+- The expiratory columns (`_exp`) are gastric: ERS 2019 designates Pga as the
+  signal of the main expiratory muscles, the abdominals. They reference Pga to
+  the nadir over the first `pga_nadir_frac` of expiration — the relaxed
+  abdominal level — and integrate from that instant, not from `t_expi`. Unlike `dPga`, they have no uncorrected counterpart because
+  neither boundary of the expiratory window is a resting instant: at `t_expi`
+  the inspiratory effort is still ending (Pes is far below its resting level),
+  and end-expiration is the peak of abdominal contraction, which drives the
+  pressure-time products negative on most cycles. ATS/ERS 2002 sanctions the
+  measurement ("PTP of the expiratory muscles can also be measured") and points
+  at this signal ("Examination of the Pga signal during expiration […] allows
+  detection of phasic expiratory muscle activity").
+- `TTIabd` needs `Pga_max` from a maximal expiratory manoeuvre and stays `NaN`
+  otherwise, exactly like `TTIdi` with `Pdi_max`. The value used in the example
+  above is illustrative, not measured.
+- `pes_artifact` flags cycles whose end-expiratory `Pdi` falls below
+  `pdi_ee_min` (−5 cmH2O by default). A relaxed subject cannot have a negative
+  resting `Pdi`, since `Pga` exceeds `Pes`, so such a value means the `Pes`
+  trace is corrupted at that instant — oesophageal peristalsis during a
+  swallow being the usual cause. On a flagged cycle every `Pes`- and
+  `Pdi`-derived column is unreliable while the gastric columns stay valid.
+  Nothing is masked or dropped: values are reported as computed and the flag
+  is advisory. It is missing, not `False`, when `Pdi` is unavailable.
 - The final cycle in each block is excluded because the next inspiration onset
   is unknown.
 
@@ -171,7 +209,7 @@ pytest
 ## Maintainer
 
 Maintained under [NEURES](https://github.com/Neures-1158). Lead: Damien
-Bachasson, PhD ([GitHub](https://github.com/dambach) |
+Bachasson, PhD, HDR ([GitHub](https://github.com/dambach) |
 [ORCID](https://orcid.org/0000-0001-6335-9916) |
 [Lab](https://sante.sorbonne-universite.fr/structures-de-recherche/neurophysiologie-respiratoire-experimentale-et-clinique)).
 Issues and PRs welcome.

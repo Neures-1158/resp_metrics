@@ -68,6 +68,10 @@ _EFFORT_COLS = [
     "PTPdi",
     "PTPdi_PTPes",
     "TTIdi",
+    "dPga_exp",
+    "PTPga_exp",
+    "TTIabd",
+    "pes_artifact",
 ]
 
 
@@ -83,6 +87,7 @@ def _process_single_block(
     pga_col: str | None,
     pdi_col: str | None,
     pdi_max: float | None,
+    pga_max: float | None,
     mechanically_ventilated: bool,
     insp_label: str,
     expi_label: str,
@@ -114,6 +119,8 @@ def _process_single_block(
         Name of the transdiaphragmatic pressure column.
     pdi_max : float or None
         Maximal transdiaphragmatic pressure (cmH2O) used to normalise TTIdi.
+    pga_max : float or None
+        Maximal gastric pressure (cmH2O) used to normalise TTIabd.
     mechanically_ventilated : bool
         Whether to compute ventilator mechanics.
     insp_label, expi_label : str
@@ -238,6 +245,7 @@ def _process_single_block(
             flow_col=flow_col,
             flow_unit=flow_unit,
             pdi_max=pdi_max,
+            pga_max=pga_max,
         )
         if not eff.empty:
             # Drop the keys already carried by the ventilatory table to avoid
@@ -334,6 +342,7 @@ def compute_from_labchart(
     pga_col: str | None = None,
     pdi_col: str | None = None,
     pdi_max: float | None = None,
+    pga_max: float | None = None,
     mechanically_ventilated: bool = False,
     insp_label: str = "INSPI",
     expi_label: str = "EXPI",
@@ -374,6 +383,9 @@ def compute_from_labchart(
     pdi_max : float or None, default None
         Maximal transdiaphragmatic pressure (cmH2O) measured during a maximal
         manoeuvre. Required to normalise TTIdi; otherwise TTIdi is NaN.
+    pga_max : float or None, default None
+        Maximal gastric pressure (cmH2O) from a maximal expiratory manoeuvre.
+        Required to normalise TTIabd; otherwise TTIabd is NaN.
     mechanically_ventilated : bool, default False
         If True and pressure_col is provided (and ventilator module available),
         compute ventilator mechanics (PEEP, Pplat, dP, Cstat, R, MAP). Otherwise skip.
@@ -434,6 +446,7 @@ def compute_from_labchart(
             pga_col=pga_col,
             pdi_col=pdi_col,
             pdi_max=pdi_max,
+            pga_max=pga_max,
             mechanically_ventilated=mechanically_ventilated,
             insp_label=insp_label,
             expi_label=expi_label,
@@ -471,6 +484,7 @@ def compute_from_labchart(
             pga_col=pga_col,
             pdi_col=pdi_col,
             pdi_max=pdi_max,
+            pga_max=pga_max,
             mechanically_ventilated=mechanically_ventilated,
             insp_label=insp_label,
             expi_label=expi_label,

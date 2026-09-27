@@ -25,6 +25,10 @@ EFFORT_COLUMNS = [
     "PTPdi",
     "PTPdi_PTPes",
     "TTIdi",
+    "dPga_exp",
+    "PTPga_exp",
+    "TTIabd",
+    "pes_artifact",
 ]
 
 
@@ -519,3 +523,145 @@ class TestEffortEndExpiratoryPes:
             df.drop(columns=["Pes"]), cycles, pes_col=None, pga_col=None
         ).iloc[0]
         assert math.isnan(row["Pes_ee"])
+
+
+class TestEffortExpiratory:
+    """Expiratory effort over [t_expi, t_next_inspi], referenced to the Pga nadir."""
+
+    @staticmethod
+    def _expiratory_cycle():
+        """Pga relaxes to 2 early in expiration then ramps to 12 as abdominals contract.
+
+        Inspiration [1, 2] holds Pga at 6. Expiration [2, 4]: Pga drops to 2 over
+        the first 0.2 s (relaxation), then ramps linearly to 12 at t = 4.
+        Referenced to the nadir (2), dPga_exp = 10.
+        """
+        t = np.arange(0, 6, 0.01)
+        pga = np.full_like(t, 5.0)
+        pga[(t >= 1.0) & (t <= 2.0)] = 6.0
+        rel = (t > 2.0) & (t < 2.2)
+        pga[rel] = 6.0 + (2.0 - 6.0) * (t[rel] - 2.0) / 0.2
+        ramp = (t >= 2.2) & (t <= 4.0)
+        pga[ramp] = 2.0 + (12.0 - 2.0) * (t[ramp] - 2.2) / 1.8
+        pes = np.zeros_like(t)
+        pes[(t >= 1.0) & (t <= 2.0)] = -10.0
+        df = pd.DataFrame({"time_block": t, "Pes": pes, "Pga": pga})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [4.0]}
+        )
+        return df, cycles
+
+    def test_swing_referenced_to_nadir(self):
+        """Pga relaxes to 2 then peaks at 12, so dPga_exp = 10."""
+        df, cycles = self._expiratory_cycle()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["dPga_exp"] == pytest.approx(10.0, rel=2e-2)
+
+    def test_ptp_positive_and_below_peak(self):
+        """PTPga_exp is positive, and its mean over Te stays below the peak swing."""
+        df, cycles = self._expiratory_cycle()
+        row = effort_from_cycles(df, cycles).iloc[0]
+        assert row["PTPga_exp"] > 0
+        te = 4.0 - 2.0
+        assert row["PTPga_exp"] / te < row["dPga_exp"]
+
+    def test_ttiabd_matches_formula(self):
+        """TTIabd = PTPga_exp / (Pga_max x Ttot)."""
+        df, cycles = self._expiratory_cycle()
+        row = effort_from_cycles(df, cycles, pga_max=100.0).iloc[0]
+        ttot = 4.0 - 1.0
+        assert row["TTIabd"] == pytest.approx(
+            row["PTPga_exp"] / (100.0 * ttot), rel=1e-9
+        )
+
+    def test_ttiabd_nan_without_pga_max(self):
+        """Pga_max comes from a maximal manoeuvre and cannot be inferred."""
+        df, cycles = self._expiratory_cycle()
+        assert math.isnan(effort_from_cycles(df, cycles).iloc[0]["TTIabd"])
+
+    def test_ttiabd_nan_for_non_positive_pga_max(self):
+        """A non-positive Pga_max is rejected rather than flipping the sign."""
+        df, cycles = self._expiratory_cycle()
+        assert math.isnan(effort_from_cycles(df, cycles, pga_max=0.0).iloc[0]["TTIabd"])
+
+    def test_all_nan_without_next_inspi(self):
+        """Without t_next_inspi the expiratory window is undefined."""
+        df, cycles = self._expiratory_cycle()
+        cycles["t_next_inspi"] = np.nan
+        row = effort_from_cycles(df, cycles, pga_max=100.0).iloc[0]
+        for col in ("dPga_exp", "PTPga_exp", "TTIabd"):
+            assert math.isnan(row[col])
+
+    def test_all_nan_pga_gives_nan_not_crash(self):
+        """An unusable Pga channel degrades to NaN, as on the inspiratory side."""
+        df, cycles = self._expiratory_cycle()
+        df = df.assign(Pga=np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            row = effort_from_cycles(df, cycles, pga_max=100.0).iloc[0]
+        for col in ("dPga_exp", "PTPga_exp", "TTIabd"):
+            assert math.isnan(row[col])
+
+    def test_nan_without_pga_column(self):
+        """No Pga channel means no expiratory reference, hence no expiratory metrics."""
+        df, cycles = self._expiratory_cycle()
+        row = effort_from_cycles(df.drop(columns=["Pga"]), cycles, pga_col=None).iloc[0]
+        for col in ("dPga_exp", "PTPga_exp"):
+            assert math.isnan(row[col])
+
+    def test_inspiratory_columns_untouched(self):
+        """Adding the expiratory block leaves the inspiratory metrics unchanged."""
+        df, cycles = self._expiratory_cycle()
+        a = effort_from_cycles(df, cycles, pga_max=100.0).iloc[0]
+        b = effort_from_cycles(df, cycles).iloc[0]
+        for col in ("Pes_ee", "dPes", "dPga", "dPga_corr", "dPdi", "PTPes", "PTPdi"):
+            assert a[col] == pytest.approx(b[col], rel=1e-9, nan_ok=True)
+
+
+class TestEffortPesArtifactFlag:
+    """pes_artifact, raised when end-expiratory Pdi is implausibly negative."""
+
+    @staticmethod
+    def _cycle(pga_rest=8.0, pes_rest=3.0):
+        """Relaxed Pdi at rest is pga_rest - pes_rest; inspiration drops Pes."""
+        t = np.arange(0, 4, 0.01)
+        pes = np.full_like(t, pes_rest)
+        pes[(t >= 1.0) & (t <= 2.0)] = pes_rest - 20.0
+        pga = np.full_like(t, pga_rest)
+        df = pd.DataFrame({"time_block": t, "Pes": pes, "Pga": pga})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        return df, cycles
+
+    def test_not_raised_on_a_clean_cycle(self):
+        """Resting Pdi of +5 is physiological, so the flag stays down."""
+        row = effort_from_cycles(*self._cycle()).iloc[0]
+        assert not bool(row["pes_artifact"])
+
+    def test_raised_when_resting_pdi_is_negative(self):
+        """A swallow lifts Pes above Pga at rest, driving Pdi negative."""
+        # Pes at rest 30 against Pga 8 gives a resting Pdi of -22
+        row = effort_from_cycles(*self._cycle(pes_rest=30.0)).iloc[0]
+        assert bool(row["pes_artifact"])
+
+    def test_threshold_is_configurable(self):
+        """pdi_ee_min moves the decision boundary."""
+        df, cycles = self._cycle(pes_rest=11.0)  # resting Pdi = -3
+        assert not bool(effort_from_cycles(df, cycles).iloc[0]["pes_artifact"])
+        lenient = effort_from_cycles(df, cycles, pdi_ee_min=-1.0).iloc[0]
+        assert bool(lenient["pes_artifact"])
+
+    def test_missing_rather_than_false_without_pdi(self):
+        """With no Pdi the check cannot run, so the flag is missing, not False."""
+        df, cycles = self._cycle()
+        row = effort_from_cycles(df.drop(columns=["Pga"]), cycles, pga_col=None).iloc[0]
+        assert pd.isna(row["pes_artifact"])
+
+    def test_gastric_columns_stay_valid_on_a_flagged_cycle(self):
+        """The flag concerns Pes and Pdi; the gastric columns are unaffected."""
+        clean = effort_from_cycles(*self._cycle()).iloc[0]
+        flagged = effort_from_cycles(*self._cycle(pes_rest=30.0)).iloc[0]
+        assert bool(flagged["pes_artifact"])
+        assert flagged["dPga"] == pytest.approx(clean["dPga"], rel=1e-9)
+        assert flagged["PTPga"] == pytest.approx(clean["PTPga"], rel=1e-9)

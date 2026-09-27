@@ -647,3 +647,38 @@ class TestComputeFromLabchartEffort:
 
         assert isinstance(result["effort"], dict)
         assert set(result["effort"].keys()) == {1, 2}
+
+
+class TestComputeFromLabchartExpiratoryEffort:
+    """Expiratory effort columns and pga_max propagation."""
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_expiratory_columns_present(self):
+        """The expiratory columns reach both the ventilatory table and the view."""
+        result = compute_from_labchart(
+            "test.txt",
+            flow_col="Flow",
+            flow_unit="L/min",
+            pes_col="Pes",
+            pga_col="Pga",
+        )
+
+        cols = ["dPga_exp", "PTPga_exp", "TTIabd"]
+        for col in cols:
+            assert col in result["ventilatory"].columns
+            assert col in result["effort"].columns
+
+    @patch("resp_metrics.api.LabChartFile", MockLabChartFile)
+    def test_pga_max_propagates_to_ttiabd(self):
+        """TTIabd is NaN without pga_max and finite once it is supplied."""
+        kwargs = {
+            "flow_col": "Flow",
+            "flow_unit": "L/min",
+            "pes_col": "Pes",
+            "pga_col": "Pga",
+        }
+        without = compute_from_labchart("test.txt", **kwargs)["effort"]
+        with_max = compute_from_labchart("test.txt", pga_max=100.0, **kwargs)["effort"]
+
+        assert without["TTIabd"].isna().all()
+        assert with_max["TTIabd"].notna().any()
