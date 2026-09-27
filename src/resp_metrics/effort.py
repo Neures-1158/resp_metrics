@@ -24,6 +24,7 @@ It returns a DataFrame with one row per cycle and the following columns:
   - dPga_exp: expiratory gastric pressure swing (cmH2O)
   - PTPga_exp: expiratory gastric pressure-time product (cmH2O·s per breath)
   - TTIabd: tension-time index of the abdominal muscles (dimensionless)
+  - pes_artifact: quality flag on the oesophageal channel (boolean)
 
 Definitions follow the reference statements on respiratory muscle testing:
 
@@ -103,6 +104,14 @@ Notes:
   - TTIabd = (mean expiratory Pga / Pga_max) x (Te / Ttot), equivalent to
     PTPga_exp / (Pga_max x Ttot). Like Pdi_max, Pga_max comes from a maximal
     manoeuvre and must be supplied via `pga_max`, otherwise TTIabd is NaN.
+  - pes_artifact marks cycles whose end-expiratory Pdi falls below
+    `pdi_ee_min`. A relaxed subject cannot have a negative Pdi at rest, since
+    Pga exceeds Pes, so such a value means the Pes trace is corrupted at that
+    instant; oesophageal peristalsis during a swallow is the usual cause. On
+    a flagged cycle every Pes- and Pdi-derived column is unreliable, while
+    the gastric columns stay valid. The flag is missing, not False, when Pdi
+    is unavailable and the check cannot run. Nothing is masked or dropped:
+    the values are reported as computed and the flag is advisory.
   - PTPes is NOT corrected for chest wall elastic recoil, which would require
     chest wall elastance. It is a practical within-subject index of global
     inspiratory effort, not an absolute measure.
@@ -139,6 +148,7 @@ def effort_from_cycles(
     pga_nadir_frac: float = 1.0 / 3.0,
     pdi_max: float | None = None,
     pga_max: float | None = None,
+    pdi_ee_min: float = -5.0,
     block: int | str | None = None,
     block_name: str | None = None,
 ) -> pd.DataFrame:
@@ -179,6 +189,9 @@ def effort_from_cycles(
     pga_max : float or None, default None
         Maximal gastric pressure (cmH2O) from a maximal expiratory manoeuvre,
         used to normalise TTIabd. If None or non-positive, TTIabd is NaN.
+    pdi_ee_min : float, default -5.0
+        Lowest plausible end-expiratory Pdi (cmH2O). Below it, ``pes_artifact``
+        is set. Pdi unavailable leaves the flag missing rather than False.
     block : int or str or None, default None
         Optional block identifier to prepend as a ``block`` column.
     block_name : str or None, default None
@@ -217,6 +230,7 @@ def effort_from_cycles(
         "dPga_exp",
         "PTPga_exp",
         "TTIabd",
+        "pes_artifact",
     ]
     include_block = block is not None or (
         cycles_df is not None and "block" in cycles_df.columns
@@ -369,6 +383,7 @@ def effort_from_cycles(
             d_pdi = float(np.nanmax(seg_pdi)) - pdi_base
             ptp_pdi = trapz_safe(seg_pdi - pdi_base, seg_t)
         else:
+            pdi_base = float("nan")
             d_pdi = float("nan")
             ptp_pdi = float("nan")
 
@@ -431,6 +446,17 @@ def effort_from_cycles(
             else float("nan")
         )
 
+        # --- Quality flag on the oesophageal channel ---
+        # End-expiratory Pdi cannot be negative in a relaxed subject: Pga
+        # exceeds Pes at rest. A negative value means the Pes trace is
+        # corrupted at that instant, oesophageal peristalsis during a swallow
+        # being the usual cause, and every Pes- and Pdi-derived column of the
+        # cycle is then unreliable. The gastric columns are not affected.
+        if np.isfinite(pdi_base):
+            pes_artifact = bool(pdi_base < pdi_ee_min)
+        else:
+            pes_artifact = pd.NA
+
         rows.append(
             {
                 "n_cycle": int(row["n_cycle"]),
@@ -451,6 +477,7 @@ def effort_from_cycles(
                 "dPga_exp": d_pga_exp,
                 "PTPga_exp": ptp_pga_exp,
                 "TTIabd": tti_abd,
+                "pes_artifact": pes_artifact,
             }
         )
 
@@ -458,6 +485,7 @@ def effort_from_cycles(
         return pd.DataFrame(columns=all_columns)
 
     out = pd.DataFrame(rows)
+    out["pes_artifact"] = out["pes_artifact"].astype("boolean")
     if block_value is not None:
         out.insert(0, "block", block_value)
     if block_name_value is not None:

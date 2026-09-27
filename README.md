@@ -97,6 +97,7 @@ into the `ventilatory` table and also returned as a standalone `effort` table.
 | `dPga_exp` | `max(Pga) − Pga[nadir]`, from the nadir to `t_next_inspi` | cmH2O |
 | `PTPga_exp` | `∫ (Pga − Pga[nadir]) dt`, from the nadir to `t_next_inspi` | cmH2O·s·breath⁻¹ |
 | `TTIabd` | `(mean expiratory Pga / Pga_max) × (Te / Ttot)` | — |
+| `pes_artifact` | quality flag: end-expiratory Pdi below `pdi_ee_min` | boolean |
 
 Two reference conventions coexist, and the split is not inspiratory versus
 expiratory:
@@ -188,6 +189,14 @@ res["effort"].head()
 - `TTIabd` needs `Pga_max` from a maximal expiratory manoeuvre and stays `NaN`
   otherwise, exactly like `TTIdi` with `Pdi_max`. The value used in the example
   above is illustrative, not measured.
+- `pes_artifact` flags cycles whose end-expiratory `Pdi` falls below
+  `pdi_ee_min` (−5 cmH2O by default). A relaxed subject cannot have a negative
+  resting `Pdi`, since `Pga` exceeds `Pes`, so such a value means the `Pes`
+  trace is corrupted at that instant — oesophageal peristalsis during a
+  swallow being the usual cause. On a flagged cycle every `Pes`- and
+  `Pdi`-derived column is unreliable while the gastric columns stay valid.
+  Nothing is masked or dropped: values are reported as computed and the flag
+  is advisory. It is missing, not `False`, when `Pdi` is unavailable.
 - The final cycle in each block is excluded because the next inspiration onset
   is unknown.
 

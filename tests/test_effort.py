@@ -28,6 +28,7 @@ EFFORT_COLUMNS = [
     "dPga_exp",
     "PTPga_exp",
     "TTIabd",
+    "pes_artifact",
 ]
 
 
@@ -615,3 +616,52 @@ class TestEffortExpiratory:
         b = effort_from_cycles(df, cycles).iloc[0]
         for col in ("Pes_ee", "dPes", "dPga", "dPga_corr", "dPdi", "PTPes", "PTPdi"):
             assert a[col] == pytest.approx(b[col], rel=1e-9, nan_ok=True)
+
+
+class TestEffortPesArtifactFlag:
+    """pes_artifact, raised when end-expiratory Pdi is implausibly negative."""
+
+    @staticmethod
+    def _cycle(pga_rest=8.0, pes_rest=3.0):
+        """Relaxed Pdi at rest is pga_rest - pes_rest; inspiration drops Pes."""
+        t = np.arange(0, 4, 0.01)
+        pes = np.full_like(t, pes_rest)
+        pes[(t >= 1.0) & (t <= 2.0)] = pes_rest - 20.0
+        pga = np.full_like(t, pga_rest)
+        df = pd.DataFrame({"time_block": t, "Pes": pes, "Pga": pga})
+        cycles = pd.DataFrame(
+            {"n_cycle": [1], "t_inspi": [1.0], "t_expi": [2.0], "t_next_inspi": [3.0]}
+        )
+        return df, cycles
+
+    def test_not_raised_on_a_clean_cycle(self):
+        """Resting Pdi of +5 is physiological, so the flag stays down."""
+        row = effort_from_cycles(*self._cycle()).iloc[0]
+        assert row["pes_artifact"] is False or row["pes_artifact"] == False  # noqa: E712
+
+    def test_raised_when_resting_pdi_is_negative(self):
+        """A swallow lifts Pes above Pga at rest, driving Pdi negative."""
+        # Pes at rest 30 against Pga 8 gives a resting Pdi of -22
+        row = effort_from_cycles(*self._cycle(pes_rest=30.0)).iloc[0]
+        assert row["pes_artifact"] == True  # noqa: E712
+
+    def test_threshold_is_configurable(self):
+        """pdi_ee_min moves the decision boundary."""
+        df, cycles = self._cycle(pes_rest=11.0)  # resting Pdi = -3
+        assert effort_from_cycles(df, cycles).iloc[0]["pes_artifact"] == False  # noqa: E712
+        lenient = effort_from_cycles(df, cycles, pdi_ee_min=-1.0).iloc[0]
+        assert lenient["pes_artifact"] == True  # noqa: E712
+
+    def test_missing_rather_than_false_without_pdi(self):
+        """With no Pdi the check cannot run, so the flag is missing, not False."""
+        df, cycles = self._cycle()
+        row = effort_from_cycles(df.drop(columns=["Pga"]), cycles, pga_col=None).iloc[0]
+        assert pd.isna(row["pes_artifact"])
+
+    def test_gastric_columns_stay_valid_on_a_flagged_cycle(self):
+        """The flag concerns Pes and Pdi; the gastric columns are unaffected."""
+        clean = effort_from_cycles(*self._cycle()).iloc[0]
+        flagged = effort_from_cycles(*self._cycle(pes_rest=30.0)).iloc[0]
+        assert flagged["pes_artifact"] == True  # noqa: E712
+        assert flagged["dPga"] == pytest.approx(clean["dPga"], rel=1e-9)
+        assert flagged["PTPga"] == pytest.approx(clean["PTPga"], rel=1e-9)

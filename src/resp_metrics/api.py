@@ -71,6 +71,7 @@ _EFFORT_COLS = [
     "dPga_exp",
     "PTPga_exp",
     "TTIabd",
+    "pes_artifact",
 ]
 
 
