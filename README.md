@@ -83,28 +83,39 @@ into the `ventilatory` table and also returned as a standalone `effort` table.
 | Metric | Definition | Unit |
 | --- | --- | --- |
 | `Pes_ee` | end-expiratory Pes, absolute (indirect marker of operating lung volume) | cmH2O |
-| `dPes` | `Pes_baseline − min(Pes)` over inspiration | cmH2O |
+| `dPes` | `Pes_baseline − min(Pes)` | cmH2O |
 | `dPga` | `max(Pga) − Pga_baseline` | cmH2O |
-| `dPga_corr` | same, referenced to the Pga nadir | cmH2O |
+| `dPga_corr` | `max(Pga) − Pga[nadir]`, from the nadir to `t_expi` | cmH2O |
 | `dPdi` | `max(Pdi) − Pdi_baseline` | cmH2O |
 | `WOB` | `∫ (Pes_baseline − Pes) × (−Flow) dt`, work of breathing | J |
 | `PTPes` | `∫ (Pes_baseline − Pes) dt` | cmH2O·s·breath⁻¹ |
 | `PTPga` | `∫ (Pga − Pga_baseline) dt` | cmH2O·s·breath⁻¹ |
-| `PTPga_corr` | same, integrated from the Pga nadir | cmH2O·s·breath⁻¹ |
+| `PTPga_corr` | `∫ (Pga − Pga[nadir]) dt`, from the nadir to `t_expi` | cmH2O·s·breath⁻¹ |
 | `PTPdi` | `∫ (Pdi − Pdi_baseline) dt` | cmH2O·s·breath⁻¹ |
 | `PTPdi_PTPes` | `PTPdi / PTPes`, diaphragmatic share of the effort | — |
 | `TTIdi` | `(mean inspiratory Pdi / Pdi_max) × (Ti / Ttot)` | — |
-| `dPes_exp` | `max(Pes) − Pes[nadir]` over expiration | cmH2O |
-| `dPga_exp` | `max(Pga) − Pga[nadir]` over expiration | cmH2O |
-| `PTPes_exp` | `∫ (Pes − Pes[nadir]) dt` over expiration | cmH2O·s·breath⁻¹ |
-| `PTPga_exp` | `∫ (Pga − Pga[nadir]) dt` over expiration | cmH2O·s·breath⁻¹ |
+| `dPes_exp` | `max(Pes) − Pes[nadir]`, from the nadir to `t_next_inspi` | cmH2O |
+| `dPga_exp` | `max(Pga) − Pga[nadir]`, from the nadir to `t_next_inspi` | cmH2O |
+| `PTPes_exp` | `∫ (Pes − Pes[nadir]) dt`, from the nadir to `t_next_inspi` | cmH2O·s·breath⁻¹ |
+| `PTPga_exp` | `∫ (Pga − Pga[nadir]) dt`, from the nadir to `t_next_inspi` | cmH2O·s·breath⁻¹ |
 | `TTIabd` | `(mean expiratory Pga / Pga_max) × (Te / Ttot)` | — |
 
-Inspiratory columns cover `[t_inspi, t_expi]` and reference each channel to
-the median over the `baseline_window` preceding inspiration onset (0.2 s by
-default), i.e. the resting end-expiratory level. The `_exp` columns cover
-`[t_expi, t_next_inspi]` and use a different reference — see Limitations.
-`Pdi` is read from `pdi_col` when given, otherwise derived as `Pga − Pes`. Definitions follow the
+Two reference conventions coexist, and the split is not inspiratory versus
+expiratory:
+
+- **Baseline-referenced** — `dPes`, `dPga`, `dPdi`, `WOB`, `PTPes`, `PTPga`,
+  `PTPdi`. Computed over `[t_inspi, t_expi]` and referenced to the median of
+  the `baseline_window` preceding inspiration onset (0.2 s by default), i.e.
+  the resting end-expiratory level. `Pes_ee` is that baseline itself.
+- **Nadir-referenced** — `dPga_corr`, `PTPga_corr` and every `_exp` column.
+  Computed *from the Pga nadir* to the end of the phase, and referenced to
+  each channel's value at that instant. The nadir is searched over the first
+  `pga_nadir_frac` of the phase: `[t_inspi, t_expi]` for the inspiratory
+  pair, `[t_expi, t_next_inspi]` for the expiratory columns.
+
+`TTIdi` and `TTIabd` additionally divide by `Ttot`, so they span the whole
+cycle. `Pdi` is read from `pdi_col` when given, otherwise derived as
+`Pga − Pes`. Definitions follow the
 [ATS/ERS Statement on Respiratory Muscle Testing](https://www.atsjournals.org/doi/10.1164/rccm.166.4.518)
 (*Am J Respir Crit Care Med* 2002;166:518-624) and the
 [ERS statement on respiratory muscle testing at rest and during exercise](https://publications.ersnet.org/content/erj/53/6/1801214)
@@ -123,8 +134,8 @@ res = compute_from_labchart(
     pes_col="Pes",
     pga_col="Pga",
     pdi_col="Pdi",
-    pdi_max=97.0,  # cmH2O, measured during a maximal manoeuvre
-    pga_max=110.0,  # cmH2O, illustrative value only — see Limitations
+    pdi_max=97.0,  # cmH2O, measured during a maximal inspiratory manoeuvre
+    pga_max=110.0,  # cmH2O, measured during a maximal expiratory manoeuvre illustrative value only — see Limitations
 )
 res["effort"].head()
 ```
@@ -167,7 +178,7 @@ res["effort"].head()
   threshold is a `TTIdi` of 0.15–0.18 (ATS/ERS).
 - The expiratory columns (`_exp`) reference both channels to a single instant,
   the Pga nadir over the first `pga_nadir_frac` of expiration — the relaxed
-  abdominal level. Unlike `dPga`, they have no uncorrected counterpart because
+  abdominal level — and integrate from that instant, not from `t_expi`. Unlike `dPga`, they have no uncorrected counterpart because
   neither boundary of the expiratory window is a resting instant: at `t_expi`
   the inspiratory effort is still ending (Pes is far below its resting level),
   and end-expiration is the peak of abdominal contraction, which drives the
